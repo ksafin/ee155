@@ -11,6 +11,48 @@
 #define RTS 28
 #define SPI_RESET 29
 
+volatile boolean serialAvailable = false;
+
+// BIT MASKS
+// Masks for extracting relevant data
+#define componentId_mask 00000011
+#define functionId_mask 11111100
+#define parameterQty_mask 00000011
+
+// ACKNOWLEDGE RESPONSE
+#define ACK 0xAA
+
+// FUNCTION ID DEFINITIONS
+#define FID_SETPWM    0x00  // Set Motor PWM
+#define FID_SETILIM   0x01  // Set Motor Current Limit
+#define FID_GETSPD    0x02  // Get Motor Speed (RPM)
+#define FID_GETDIR    0x03  // Get Motor Direction
+#define FID_GETCUR    0x04  // Get Motor Current
+#define FID_SETPID    0x05  // Set PID Constants
+#define FID_SETSPD    0x06  // Set Motor Speed (RPM)
+#define FID_RESENC    0x07  // Reset Motor Encoder
+#define FID_GETENC    0x08  // Get Motor Encoder Ticks
+#define FID_ROTPWM    0x09  // Rotate for some Revs at given PWM
+#define FID_ROTSPD    0x0A  // Rotate for some revs at given RPM
+#define FID_COAST     0x0B  // Enable Coast
+#define FID_BRAKE     0x0C  // Enable Brake
+#define FID_CSPD      0x0D  // Set Coast Speed
+#define FID_STOP      0x0E  // Stop Motor
+#define FID_REL       0x0F  // Release Motor
+#define FID_FAULT     0x10  // Get Motor Fault
+#define FID_SETANG    0x11  // Set Servo Angle
+#define FID_SETSPD    0x12  // Set Continuous Servo Speed
+#define FID_TCURR     0x13  // Get Total Current
+#define FID_STEPILIM  0x14  // Set Stepper Current Limit
+#define FID_STEPCUR   0x15  // Get Stepper Current
+#define FID_RESSTEP   0x16  // Reset Stepper Steps
+#define FID_GETSTP    0x17  // Get Stepper Steps
+#define FID_STEP      0x18  // Advanced Stepper for Steps
+#define FID_HOLD      0x19  // Hold Stepper
+#define FID_STEPSPD   0x1A  // Set Stepper Speed, in RPM
+#define FID_ONESTP    0x1B  // Advance One Step
+#define FID_STEPREL   0x1C  // Release Stepper
+
 // ======================== LED DEFINITION  ======================== 
 // Pins for RGB LED cathodes -- drive LOW to enable particular color
 #define LED_R 2
@@ -185,10 +227,10 @@ boolean m3_usePID = false;
 boolean m4_usePID = false;
 
 // Desired RPM to reach, under PID conditions.
-double m1_targetRPM = 0.0;
-double m2_targetRPM = 0.0;
-double m3_targetRPM = 0.0;
-double m4_targetRPM = 0.0;
+uint16_t m1_targetRPM = 0.0;
+uint16_t m2_targetRPM = 0.0;
+uint16_t m3_targetRPM = 0.0;
+uint16_t m4_targetRPM = 0.0;
 
 // Current PID error. (distance from desired RPM, at current RPM)
 uint16_t m1_err = 0.0;
@@ -269,7 +311,7 @@ double battVoltage;
 
 // PWM FREQUENCY & RESOLUTION
 const double PWM_FREQ = 11718.75; // in hertz
-const uint8_t PWM_RES = 12; // 2^PWM_RES is max PWM write value
+const uint8_t PWM_RES = 8; // 2^PWM_RES is max PWM write value
 
 // ANALOG READING
 const uint8_t ADC_RES = 12; // 2^ADC_RES; 4096, max analog value
@@ -282,13 +324,16 @@ Encoder enc3(ENC3_A, ENC3_B);
 Encoder enc4(ENC4_A, ENC4_B);
 
 // The number of encoder ticks 100ms ago (for RPM calculation)
-long m1_100ms_ticks = 0;
-long m2_100ms_ticks = 0;
-long m3_100ms_ticks = 0;
-long m4_100ms_ticks = 0;
+long m1_past_ticks = 0;
+long m2_past_ticks = 0;
+long m3_past_ticks = 0;
+long m4_past_ticks = 0;
+
+// Time between encoder readings for RPM updates
+uint16_t rpmTimeStep = 100; // in ms
 
 // Total current of all four motors
-int totalCurrent;
+double totalCurrent;
 
 // Checks amount of time remaining to coast
 IntervalTimer m1_timer;
@@ -297,7 +342,7 @@ IntervalTimer m3_timer;
 IntervalTimer m4_timer;
 
 // Timer for rpm measurements
-Metro encTimer = Metro(100);
+Metro encTimer = Metro(rpmTimeStep);
 
 // Timer for PID iteration (ms)
 Metro pidTimer = Metro(timeStep);
@@ -379,15 +424,19 @@ void setup() {
 
   // SPI BRIDGE
   pinMode(SPI_RESET, OUTPUT);
+  pinMode(IRQ, INPUT);
+  attachInterrupt(IRQ, serialInterrupt, FALLING); 
 
   // AUX
   pinMode(BATT_SENSE, INPUT);
 
   // Read current encoder readings, to start off.
-  m1_100ms_ticks = enc1.read();
-  m2_100ms_ticks = enc2.read();
-  m3_100ms_ticks = enc3.read();
-  m4_100ms_ticks = enc4.read();
+  m1_past_ticks = enc1.read();
+  m2_past_ticks = enc2.read();
+  m3_past_ticks = enc3.read();
+  m4_past_ticks = enc4.read();
+
+  Serial.begin(115200);
 }
 
 // ======================== READ CURRENTS ======================== 
@@ -412,16 +461,41 @@ void readFaultStates() {
   fault4 = (~mcp.digitalRead(EN2_A)) || (~mcp.digitalRead(EN2_B));
 }
 
+// ======================== GET MOTOR FAULT  ======================== 
+// Returns motor fault state, 0 for none, 1 for OC, 2 for all others, 3 for both
+//motor -- an int, 1-4, designating which motor to control
+uint8_t getMotorFault(uint8_t motor) {
+  switch(motor) {
+    case 1: if(motor1_oc && fault1) { return 3; } else if(fault1) {return 2;} else if(motor1_oc) { return 1; } else { return 0; }
+    case 2: if(motor2_oc && fault2) { return 3; } else if(fault2) {return 2;} else if(motor2_oc) { return 1; } else { return 0; }
+    case 3: if(motor3_oc && fault3) { return 3; } else if(fault3) {return 2;} else if(motor3_oc) { return 1; } else { return 0; }
+    case 4: if(motor4_oc && fault4) { return 3; } else if(fault4) {return 2;} else if(motor4_oc) { return 1; } else { return 0; }
+  }
+}
+
 // ======================== SET MOTOR PWM  ======================== 
 // Set the PWM duty cycle the provided motor
 // motor -- an int, 1-4, designating which motor to control
 // pwm -- an int, 0 - 2^PWM_RES, designating duty cycle
 void setMotorPWM(uint8_t motor, uint16_t pwm) {
   switch(motor) {
-    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
-    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
-    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
-    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
+    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); m1_usePID = false; break;
+    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); m2_usePID = false; break;
+    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); m3_usePID = false; break;
+    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); m4_usePID = false; break;
+  }
+}
+
+// ======================== SET MOTOR COAST SPEED  ======================== 
+// Set the coast speed of a given motor, in ms
+// motor -- an int, 1-4, designating which motor to control
+// speed -- time, in ms, to take for a coast from any PWM to 0.
+void setMotorCoastSpeed(uint8_t motor, uint16_t spd) {
+  switch(motor) {
+    case 1: motor1_coastSpd = spd; break;
+    case 2: motor1_coastSpd = spd; break;
+    case 3: motor1_coastSpd = spd; break;
+    case 4: motor1_coastSpd = spd; break;
   }
 }
 
@@ -475,6 +549,20 @@ boolean getMotorDirection(uint8_t motor) {
     case 3: return motor3_cw;
     case 4: return motor4_cw;
     default: return false;
+  }
+}
+
+// ======================== GET MOTOR RPM ======================== 
+// Gets the current motor speed, in rpm.
+// motor -- an int, 1-4, designating which motor to check
+// Returned value is rpm
+uint16_t getMotorRPM(uint8_t motor) {
+  switch(motor) {
+    case 1: return motor1_rpm;
+    case 2: return motor2_rpm;
+    case 3: return motor3_rpm;
+    case 4: return motor4_rpm;
+    default: return 0;
   }
 }
 
@@ -627,18 +715,18 @@ void stopMotor(uint8_t motor) {
 // Updates RPM readings for all four motors, as per the encoder-reading timer
 // Adjust the time between encoder readings by changing the constructor for encTimer
 // Checks difference between current encoder ticks and the last set of encoder ticks
-// Divides this difference by the ppr to find the number of revolutions, divides by time to find RPM.
+// Multiplies this by the # of timesteps in 1 second to get rps, multiplies by 60 to get rpm
 // Reads the current values for subsequent updates.
 void updateRPMs() {
   if(encTimer.check() == 1) {
-    motor1_rpm = (absoluteDifference(enc1.read(),m1_100ms_ticks) / m1_ppr) * 10; 
-    motor2_rpm = (absoluteDifference(enc2.read(),m2_100ms_ticks) / m2_ppr) * 10;
-    motor3_rpm = (absoluteDifference(enc3.read(),m3_100ms_ticks) / m3_ppr) * 10;
-    motor4_rpm = (absoluteDifference(enc4.read(),m4_100ms_ticks) / m4_ppr) * 10;
-    m1_100ms_ticks = enc1.read();
-    m2_100ms_ticks = enc2.read();
-    m3_100ms_ticks = enc3.read();
-    m4_100ms_ticks = enc4.read();
+    motor1_rpm = (absoluteDifference(enc1.read(),m1_past_ticks) / m1_ppr) * (1000/rpmTimeStep) * 60;  
+    motor2_rpm = (absoluteDifference(enc2.read(),m2_past_ticks) / m2_ppr) * (1000/rpmTimeStep) * 60;
+    motor3_rpm = (absoluteDifference(enc3.read(),m3_past_ticks) / m3_ppr) * (1000/rpmTimeStep) * 60;
+    motor4_rpm = (absoluteDifference(enc4.read(),m4_past_ticks) / m4_ppr) * (1000/rpmTimeStep) * 60;
+    m1_past_ticks = enc1.read();
+    m2_past_ticks = enc2.read();
+    m3_past_ticks = enc3.read();
+    m4_past_ticks = enc4.read();
   }
 }
 
@@ -799,6 +887,77 @@ uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
   }
 }
 
+
+// ======================== ROTATE AT GIVEN SPEED  ======================== 
+// This function rotates for a given number of rotations at a given speed
+// servo -- an int, 1-4, designating which servo to control
+void rotateMotorForRotations(uint8_t motor, uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+  switch(motor) {
+    case 1: runMotor1ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 2: runMotor2ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 3: runMotor3ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 4: runMotor4ForRotations(rots, rpmOrPwm, isRPM); break;
+  }
+}
+
+// Runs a given motor for a certain number of rotations, either under constant
+// PWM or constant RPM. If PID is disabled for this motor, does nothing
+// rots -- integer indicating number of rotations
+// rpmOrPwm -- value holding either PWM duty cycle or RPM
+// isRPM -- if true, value is RPM. if false, it's PWM.
+void runMotor1ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+  if((isRPM) && (~m1_usePID)) return;
+  long curTicks = getEncoderTicks(MOTOR1);
+  long targetTicks = curTicks + (rots * m1_ppr);
+  if(isRPM) m1_targetRPM = rpmOrPwm;
+  if(~isRPM) motor1_pwm = rpmOrPwm;
+  while(curTicks < targetTicks) {
+    curTicks = getEncoderTicks(MOTOR1);
+  }
+  if(isRPM) m1_targetRPM = 0;
+  if(~isRPM) motor1_pwm = 0;
+}
+
+void runMotor2ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+  if((isRPM) && (~m2_usePID)) return;
+  long curTicks = getEncoderTicks(MOTOR2);
+  long targetTicks = curTicks + (rots * m2_ppr);
+  if(isRPM) m2_targetRPM = rpmOrPwm;
+  if(~isRPM) motor2_pwm = rpmOrPwm;
+  while(curTicks < targetTicks) {
+    curTicks = getEncoderTicks(MOTOR2);
+  }
+  if(isRPM) m2_targetRPM = 0;
+  if(~isRPM) motor2_pwm = 0;
+}
+
+void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+  if((isRPM) && (~m3_usePID)) return;
+  long curTicks = getEncoderTicks(MOTOR3);
+  long targetTicks = curTicks + (rots * m3_ppr);
+  if(isRPM) m3_targetRPM = rpmOrPwm;
+  if(~isRPM) motor3_pwm = rpmOrPwm;
+  while(curTicks < targetTicks) {
+    curTicks = getEncoderTicks(MOTOR3);
+  }
+  if(isRPM) m3_targetRPM = 0;
+  if(~isRPM) motor3_pwm = 0;
+}
+
+void runMotor4ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+  if((isRPM) && (~m4_usePID)) return;
+  long curTicks = getEncoderTicks(MOTOR4);
+  long targetTicks = curTicks + (rots * m4_ppr);
+  if(isRPM) m4_targetRPM = rpmOrPwm;
+  if(~isRPM) motor4_pwm = rpmOrPwm;
+  while(curTicks < targetTicks) {
+    curTicks = getEncoderTicks(MOTOR4);
+  }
+  if(isRPM) m4_targetRPM = 0;
+  if(~isRPM) motor4_pwm = 0;
+}
+
+
 // Runs PID for all motors for which PID is enabled
 // Runs every so often depending on the configured PID period.
 void runPID() {
@@ -807,6 +966,26 @@ void runPID() {
     if(m2_usePID) runMotor2PID();
     if(m3_usePID) runMotor3PID();
     if(m4_usePID) runMotor4PID();
+  }
+}
+
+// Set PID settings for a motor and enable PID
+void setPID(uint8_t motor, double Kp, double Kd, double Ki) {
+  switch(motor) {
+    case 1: m1_Kp = Kp; m1_Kd = Kd; m1_Ki = Ki; m1_usePID = true; break;
+    case 2: m2_Kp = Kp; m2_Kd = Kd; m2_Ki = Ki; m2_usePID = true; break;
+    case 3: m3_Kp = Kp; m3_Kd = Kd; m3_Ki = Ki; m3_usePID = true; break;
+    case 4: m4_Kp = Kp; m4_Kd = Kd; m4_Ki = Ki; m4_usePID = true; break;
+  }
+}
+
+// Set PID target RPM
+void setMotorSpeed(uint8_t motor, double targetRPM) {
+  switch(motor) {
+    case 1: m1_targetRPM = targetRPM; break;
+    case 2: m2_targetRPM = targetRPM; break; break;
+    case 3: m3_targetRPM = targetRPM; break; break;
+    case 4: m4_targetRPM = targetRPM; break; break;
   }
 }
 
@@ -891,6 +1070,102 @@ void updateLED() {
   }
 }
 
+// Takes packetized data and calls the appropriate function with the relevant variables.
+// Parameters sent by master are global uint16_t's.
+void functionParser(uint8_t comp, uint8_t fid, uint8_t parameter1, uint8_t parameter2, uint8_t parameter3) {
+  // Variables to store response data, if any.
+  uint8_t type = 0;
+  long responseLong; // type 1
+  uint8_t responseByte; // type 2
+  uint16_t responseTwoByte; // type 3
+  double responseDouble; // type 4
+  boolean responseBool; // type 5
+  
+  // Motor Functions
+  // Determine what function to call by FID, then call it with the requisite parameters
+  // If a function returns a value, store in appropriate response variable for sending later
+  if(fid <= FID_FAULT)  {
+    switch(fid) {
+      case FID_SETPWM:    setMotorPWM(comp, parameter1);                                    break;
+      case FID_SETILIM:   setMotorCurrentLimit(comp, (parameter1 * (30.0/255.0)));          break;
+      case FID_GETSPD:    responseTwoByte = getMotorRPM(comp); type = 3;                    break;
+      case FID_GETDIR:    responseBool = getMotorDirection(comp); type = 5;                 break;
+      case FID_GETCUR:    responseDouble = getMotorCurrent(comp); type = 4;                 break;
+      case FID_SETPID:    setPID(comp, parameter1, parameter2, parameter3);                 break;
+      case FID_SETSPD:    setMotorSpeed(comp, parameter1);                                  break;
+      case FID_RESENC:    resetEncoder(comp);                                               break;
+      case FID_GETENC:    responseLong = getEncoderTicks(comp); type = 1;                   break;
+      case FID_ROTPWM:    rotateMotorForRotations(comp,parameter1,parameter2,false);        break;
+      case FID_ROTSPD:    rotateMotorForRotations(comp,parameter1,parameter2,true);         break;
+      case FID_COAST:     useBrakeMotor(comp, false);                                       break;
+      case FID_BRAKE:     useBrakeMotor(comp, true);                                        break;
+      case FID_CSPD:      setMotorCoastSpeed(comp, parameter1);                             break;
+      case FID_STOP:      stopMotor(comp);                                                  break;
+      case FID_REL:       releaseMotor(comp);                                               break;
+      case FID_FAULT:     responseByte = getMotorFault(comp); type = 2;                     break;
+    }
+    // Servo Functions
+  } else if (fid <= FID_SETSPD) {
+    switch(fid) {
+      case FID_SETANG:    setServoAngle(comp, parameter1);                                  break;
+      case FID_SETSPD:    setServoAngle(comp, parameter1);                                  break;
+    }
+    // Total Current
+  } else if (fid == FID_TCURR) {
+      responseDouble = totalCurrent;
+    // Stepper Functions
+  } else if (fid <= FID_STEPREL) {
+    
+  }
+
+  // Send Response, if any
+  // If no response needed, send ACKNOWLEDGE byte (0xAA)
+  switch(type) {
+    case 0: MASTER_SERIAL.print(ACK); break;
+    case 1: MASTER_SERIAL.print(responseLong); break;
+    case 2: MASTER_SERIAL.print(responseByte); break;
+    case 3: MASTER_SERIAL.print(responseTwoByte); break;
+    case 4: MASTER_SERIAL.print(responseDouble); break;
+    case 5: MASTER_SERIAL.print(responseBool); break;
+  }
+  
+}
+
+void serialInterrupt() {
+  serialAvailable = true;
+}
+
+void readPacket() {
+  uint8_t comp;
+  byte header;
+  uint8_t nParams;
+  uint8_t params[3];
+  uint8_t fid;
+
+  // Get Component ID
+  if(MASTER_SERIAL.available()) comp = (uint8_t)(MASTER_SERIAL.read() & componentId_mask);
+
+  // Get Header
+  if(MASTER_SERIAL.available()) header = MASTER_SERIAL.read();
+
+  // Extract FID & nParams from header via bitmasks
+  fid = (uint8_t)(header & functionId_mask);
+  nParams = (uint8_t)(header & parameterQty_mask);
+
+  // Iterate over the transmitted parameters, store in array
+  for(int i = 0; i < nParams; i++) {
+    if(MASTER_SERIAL.available()) {
+      params[i] = (uint8_t)(MASTER_SERIAL.read());
+    }
+  }
+
+  // Parse & call function
+  functionParser(comp, fid, params[0], params[1], params[2]);
+
+  // Set flag to false
+  serialAvailable = false;
+}
+
 // ======================== PRIMARY LOOP  ======================== 
 void loop() {
   readCurrents();
@@ -901,4 +1176,5 @@ void loop() {
   runPID();
   updateBatteryVoltage();
   updateLED();
+  if(serialAvailable) readPacket();
 }
