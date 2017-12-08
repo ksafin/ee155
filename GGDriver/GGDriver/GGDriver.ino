@@ -111,8 +111,8 @@ Adafruit_MCP23017 mcp;
 
 // ======================== SERVO DEFINITION  ======================== 
 // PWM for Servos to control angle
-#define SERVO1_PWM 10
-#define SERVO2_PWM 9
+#define SERVO1_PWM 9  
+#define SERVO2_PWM 10
 #define SERVO3_PWM 25
 #define SERVO4_PWM 32
 
@@ -192,7 +192,7 @@ uint16_t motor4_coastSpd = 500;
 float m1_ppr = 134.4;
 float m2_ppr = 134.4;
 float m3_ppr = 134.4;
-float m4_ppr = 134.4;
+float m4_ppr = 420.0;//134.4;
 
 // FAULT STATES
 // Fault state for each motor, as determined by the bridge chip.
@@ -437,6 +437,9 @@ void setup() {
   m4_past_ticks = enc4.read();
 
   Serial.begin(115200);
+
+  setMotorDirection(MOTOR2,true);
+  setMotorPWM(MOTOR2,255);
 }
 
 // ======================== READ CURRENTS ======================== 
@@ -455,10 +458,10 @@ void readCurrents() {
 // Reads diagnostic pins for each half-bridge to determine fault states
 // If either shows an error, assert fault for entire motor chip
 void readFaultStates() {
-  fault1 = (~mcp.digitalRead(EN1_A)) || (~mcp.digitalRead(EN1_B));
-  fault2 = (~mcp.digitalRead(EN2_A)) || (~mcp.digitalRead(EN2_B));
-  fault3 = (~mcp.digitalRead(EN2_A)) || (~mcp.digitalRead(EN2_B));
-  fault4 = (~mcp.digitalRead(EN2_A)) || (~mcp.digitalRead(EN2_B));
+  fault1 = (!mcp.digitalRead(EN1_A)) || (!mcp.digitalRead(EN1_B));
+  fault2 = (!mcp.digitalRead(EN2_A)) || (!mcp.digitalRead(EN2_B));
+  fault3 = (!mcp.digitalRead(EN2_A)) || (!mcp.digitalRead(EN2_B));
+  fault4 = (!mcp.digitalRead(EN2_A)) || (!mcp.digitalRead(EN2_B));
 }
 
 // ======================== GET MOTOR FAULT  ======================== 
@@ -520,20 +523,20 @@ void setMotorCurrentLimit(uint8_t motor, double ilim) {
 void setMotorDirection(uint8_t motor, boolean cw) {
   switch(motor) {
     case 1: motor1_cw = cw;
-            mcp.digitalWrite(IN1_A,cw);
-            mcp.digitalWrite(IN1_B,~cw);
+            mcp.digitalWrite(IN1_A, cw);
+            mcp.digitalWrite(IN1_B, !cw);
             break;
     case 2: motor2_cw = cw;
-            mcp.digitalWrite(IN2_A,cw);
-            mcp.digitalWrite(IN2_B,~cw);
+            mcp.digitalWrite(IN2_A, cw);
+            mcp.digitalWrite(IN2_B, !cw);
             break;
     case 3: motor3_cw = cw;
-            mcp.digitalWrite(IN3_A,cw);
-            mcp.digitalWrite(IN3_B,~cw);
+            mcp.digitalWrite(IN3_A, cw);
+            mcp.digitalWrite(IN3_B, !cw);
             break;
     case 4: motor4_cw = cw;
-            mcp.digitalWrite(IN4_A,cw);
-            mcp.digitalWrite(IN4_B,~cw);
+            mcp.digitalWrite(IN4_A, cw);
+            mcp.digitalWrite(IN4_B, !cw);
             break;
   }
 }
@@ -601,9 +604,9 @@ long getEncoderTicks(uint8_t motor) {
 void resetEncoder(uint8_t motor) {
   switch(motor) {
     case 1: enc1.write(0);
-    case 2: enc1.write(0);
-    case 3: enc1.write(0);
-    case 4: enc1.write(0);
+    case 2: enc2.write(0);
+    case 3: enc3.write(0);
+    case 4: enc4.write(0);
   }
 }
 
@@ -626,17 +629,23 @@ void useBrakeMotor(uint8_t motor, boolean isBrake) {
 // Sets both IN pins to high to set motors to VCC - VCC
 void brakeMotor(uint8_t motor) {
   switch(motor) {
-    case 1: mcp.digitalWrite(IN1_A, HIGH);
+    case 1: setMotorPWM(MOTOR1, 0);
+            mcp.digitalWrite(IN1_A, HIGH);
             mcp.digitalWrite(IN1_B, HIGH);
             break;
-    case 2: mcp.digitalWrite(IN2_A, HIGH);
+    case 2: setMotorPWM(MOTOR2, 0);
+            mcp.digitalWrite(IN2_A, HIGH);
             mcp.digitalWrite(IN2_B, HIGH);
             break;
-    case 3: mcp.digitalWrite(IN3_A, HIGH);
+    case 3: setMotorPWM(MOTOR3, 0);
+            mcp.digitalWrite(IN3_A, HIGH);
             mcp.digitalWrite(IN3_B, HIGH);
             break;
-    case 4: mcp.digitalWrite(IN4_A, HIGH);
-            mcp.digitalWrite(IN4_B, HIGH);
+    case 4: setMotorPWM(MOTOR4, 0);
+            setMotorDirection(MOTOR4,true);
+            mcp.digitalWrite(IN4_A, HIGH);
+            mcp.digitalWrite(IN4_B, LOW);
+            Serial.println("braking motor");
             break;
   }
 }
@@ -719,10 +728,10 @@ void stopMotor(uint8_t motor) {
 // Reads the current values for subsequent updates.
 void updateRPMs() {
   if(encTimer.check() == 1) {
-    motor1_rpm = (absoluteDifference(enc1.read(),m1_past_ticks) / m1_ppr) * (1000/rpmTimeStep) * 60;  
-    motor2_rpm = (absoluteDifference(enc2.read(),m2_past_ticks) / m2_ppr) * (1000/rpmTimeStep) * 60;
-    motor3_rpm = (absoluteDifference(enc3.read(),m3_past_ticks) / m3_ppr) * (1000/rpmTimeStep) * 60;
-    motor4_rpm = (absoluteDifference(enc4.read(),m4_past_ticks) / m4_ppr) * (1000/rpmTimeStep) * 60;
+    motor1_rpm = abs((((double)absoluteDifference(enc1.read(),m1_past_ticks)) / m1_ppr)  * (1000.0/rpmTimeStep) * 60.0 / 4.0);  
+    motor2_rpm = abs((((double)absoluteDifference(enc2.read(),m2_past_ticks)) / m2_ppr)  * (1000.0/rpmTimeStep) * 60.0 / 4.0);
+    motor3_rpm = abs((((double)absoluteDifference(enc3.read(),m3_past_ticks)) / m3_ppr)  * (1000.0/rpmTimeStep) * 60.0 / 4.0);
+    motor4_rpm = abs((((double)absoluteDifference(enc4.read(),m4_past_ticks)) / m4_ppr)  * (1000.0/rpmTimeStep) * 60.0 / 4.0);
     m1_past_ticks = enc1.read();
     m2_past_ticks = enc2.read();
     m3_past_ticks = enc3.read();
@@ -741,22 +750,22 @@ long absoluteDifference(long val1, long val2) {
 // These interrupt functions are called every given number of microseconds.
 // Each call, the PWM gets subtracted by 1 until the PWM is 0, then the interrupt is cancelled.
 void coastMotor1() {
-  motor1_pwm = motor1_pwm - 1;
+  setMotorPWM(MOTOR1, motor1_pwm - 1);
   if(motor1_pwm == 0) m1_timer.end();
 }
 
 void coastMotor2() {
-  motor2_pwm = motor2_pwm - 1;
+  setMotorPWM(MOTOR2, motor2_pwm - 1);
   if(motor2_pwm == 0) m2_timer.end();
 }
 
 void coastMotor3() {
-  motor3_pwm = motor3_pwm - 1;
+  setMotorPWM(MOTOR3, motor3_pwm - 1);
   if(motor3_pwm == 0) m3_timer.end();
 }
 
 void coastMotor4() {
-  motor4_pwm = motor4_pwm - 1;
+  setMotorPWM(MOTOR4, motor4_pwm - 1);
   if(motor4_pwm == 0) m4_timer.end();
 }
 
@@ -862,7 +871,7 @@ void fixFaults() {
 // servo -- an int, 1-4, designating which servo to control
 void setServoAngle(uint8_t servo, uint16_t angle) {
   switch(servo) {
-    case 1: servo1.write(getAngleValue(angle, servo1_angle)); break;
+    case 1: servo1.write(getAngleValue(angle, servo1_angle));  break;
     case 2: servo2.write(getAngleValue(angle, servo2_angle)); break;
     case 3: servo3.write(getAngleValue(angle, servo3_angle)); break;
     case 4: servo4.write(getAngleValue(angle, servo4_angle)); break;
@@ -906,55 +915,55 @@ void rotateMotorForRotations(uint8_t motor, uint16_t rots, uint16_t rpmOrPwm, bo
 // rpmOrPwm -- value holding either PWM duty cycle or RPM
 // isRPM -- if true, value is RPM. if false, it's PWM.
 void runMotor1ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
-  if((isRPM) && (~m1_usePID)) return;
+  if((isRPM) && (!m1_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR1);
   long targetTicks = curTicks + (rots * m1_ppr);
   if(isRPM) m1_targetRPM = rpmOrPwm;
-  if(~isRPM) motor1_pwm = rpmOrPwm;
+  if(!isRPM) motor1_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
     curTicks = getEncoderTicks(MOTOR1);
   }
   if(isRPM) m1_targetRPM = 0;
-  if(~isRPM) motor1_pwm = 0;
+  if(!isRPM) motor1_pwm = 0;
 }
 
 void runMotor2ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
-  if((isRPM) && (~m2_usePID)) return;
+  if((isRPM) && (!m2_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR2);
   long targetTicks = curTicks + (rots * m2_ppr);
   if(isRPM) m2_targetRPM = rpmOrPwm;
-  if(~isRPM) motor2_pwm = rpmOrPwm;
+  if(!isRPM) motor2_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
     curTicks = getEncoderTicks(MOTOR2);
   }
   if(isRPM) m2_targetRPM = 0;
-  if(~isRPM) motor2_pwm = 0;
+  if(!isRPM) motor2_pwm = 0;
 }
 
 void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
-  if((isRPM) && (~m3_usePID)) return;
+  if((isRPM) && (!m3_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR3);
   long targetTicks = curTicks + (rots * m3_ppr);
   if(isRPM) m3_targetRPM = rpmOrPwm;
-  if(~isRPM) motor3_pwm = rpmOrPwm;
+  if(!isRPM) motor3_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
     curTicks = getEncoderTicks(MOTOR3);
   }
   if(isRPM) m3_targetRPM = 0;
-  if(~isRPM) motor3_pwm = 0;
+  if(!isRPM) motor3_pwm = 0;
 }
 
 void runMotor4ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
-  if((isRPM) && (~m4_usePID)) return;
+  if((isRPM) && (!m4_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR4);
   long targetTicks = curTicks + (rots * m4_ppr);
   if(isRPM) m4_targetRPM = rpmOrPwm;
-  if(~isRPM) motor4_pwm = rpmOrPwm;
+  if(!isRPM) motor4_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
     curTicks = getEncoderTicks(MOTOR4);
   }
   if(isRPM) m4_targetRPM = 0;
-  if(~isRPM) motor4_pwm = 0;
+  if(!isRPM) motor4_pwm = 0;
 }
 
 
@@ -1054,7 +1063,7 @@ void updateBatteryVoltage() {
 void updateLED() {
   // Fault State (either OT or OC fault present) -- RED
   if(isFault()) { 
-    digitalWrite(LED_R, LOW); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
+    //digitalWrite(LED_R, LOW); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
   }
   // Doing nothing (no motors being driven) -- BLUE
   else if((motor1_pwm == 0) && (motor2_pwm == 0) && (motor3_pwm == 0) && (motor4_pwm == 0)) {
@@ -1167,14 +1176,17 @@ void readPacket() {
 }
 
 // ======================== PRIMARY LOOP  ======================== 
+
+Metro testTimer = Metro(2000);
 void loop() {
-  readCurrents();
-  readFaultStates();
-  fixFaults();
-  updateRPMs();
-  checkCurrents();
-  runPID();
-  updateBatteryVoltage();
-  updateLED();
-  if(serialAvailable) readPacket();
+  //readCurrents();
+  //readFaultStates();
+  //fixFaults();
+  //updateRPMs();
+  //checkCurrents();
+  //runPID();
+  //updateLED();
+  //if(serialAvailable) readPacket();
+  //updateBatteryVoltage();
+  if(testTimer.check() == 1) setMotorDirection(MOTOR2,!motor2_cw);
 }
