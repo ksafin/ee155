@@ -8,6 +8,8 @@ def Motor:
         self.spi = spi_obj
         self.id = motor_id
 
+        self.PID = false
+
     # Set pwm of motor motor_id on board with spi_obj to 12 Bit int pwm_val
     #define FID_SETPWM   0x00  // Set Motor PWM
     def setPWM(self, pwm_val):
