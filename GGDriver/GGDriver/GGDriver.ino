@@ -172,10 +172,10 @@ double motor4_ilim = 30;
 
 // RPM STATES
 // Most recently calculated RPMs for each motor.
-volatile uint16_t motor1_rpm = 0;
-volatile uint16_t motor2_rpm = 0;
-volatile uint16_t motor3_rpm = 0;
-volatile uint16_t motor4_rpm = 0;
+volatile double motor1_rpm = 0;
+volatile double motor2_rpm = 0;
+volatile double motor3_rpm = 0;
+volatile double motor4_rpm = 0;
 
 // COAST SPEEDS (ms to OFF)
 // Coast speed for each motor
@@ -190,7 +190,7 @@ uint16_t motor4_coastSpd = 500;
 // This is used to determine RPM, and is specific for every motor.
 // Default is 134.4, which is the ppr for an Andymark Neverest 19.2:1
 float m1_ppr = 134.4;
-float m2_ppr = 134.4;
+float m2_ppr = 420.0;
 float m3_ppr = 134.4;
 float m4_ppr = 420.0;//134.4;
 
@@ -222,39 +222,45 @@ uint16_t timeStep = 20;
 // Whether to use PID. If true, enables setting RPM via PID.
 // If false, motors are driven just by PWM. 
 boolean m1_usePID = false;
-boolean m2_usePID = false;
+boolean m2_usePID = true;
 boolean m3_usePID = false;
 boolean m4_usePID = false;
 
 // Desired RPM to reach, under PID conditions.
-uint16_t m1_targetRPM = 0.0;
-uint16_t m2_targetRPM = 0.0;
-uint16_t m3_targetRPM = 0.0;
-uint16_t m4_targetRPM = 0.0;
+double m1_targetRPM = 0.0;
+double m2_targetRPM = 0.0;
+double m3_targetRPM = 0.0;
+double m4_targetRPM = 0.0;
 
 // Current PID error. (distance from desired RPM, at current RPM)
-uint16_t m1_err = 0.0;
-uint16_t m2_err = 0.0;
-uint16_t m3_err = 0.0;
-uint16_t m4_err = 0.0;
+double m1_err = 0.0;
+double m2_err = 0.0;
+double m3_err = 0.0;
+double m4_err = 0.0;
+
+// Calculated PWM. (PWM calculated by PID)
+double m1_optPWM = 0;
+double m2_optPWM = 0;
+double m3_optPWM = 0;
+double m4_optPWM = 0;
 
 // Proportionality constants for each motors PID
-double m1_Kp = 0.0;
-double m2_Kp = 0.0;
-double m3_Kp = 0.0;
-double m4_Kp = 0.0;
+double m1_Kp = 0.8;
+double m2_Kp = 0.8; 
+double m3_Kp = 0.8;
+double m4_Kp = 0.8;
 
 // Derivative constants for each motors PID
-double m1_Kd = 0.0;
-double m2_Kd = 0.0;
-double m3_Kd = 0.0;
-double m4_Kd = 0.0;
+double m1_Kd = 0.2;
+double m2_Kd = 0.2;
+double m3_Kd = 0.2;
+double m4_Kd = 0.2;
 
 // Integral constants for each motors PID
-double m1_Ki = 0.0;
-double m2_Ki = 0.0;
-double m3_Ki = 0.0;
-double m4_Ki = 0.0;
+double m1_Ki = 0.05;
+double m2_Ki = 0.05;
+double m3_Ki = 0.05;
+double m4_Ki = 0.05;
 
 // Current accrued integral value for each motors PID
 double m1_integral = 0.0;
@@ -438,8 +444,8 @@ void setup() {
 
   Serial.begin(115200);
 
-  setMotorDirection(MOTOR2,true);
-  setMotorPWM(MOTOR2,255);
+  //setMotorDirection(MOTOR2,true);
+  //rotateMotorForRotations(MOTOR2, 10, 80, true);
 }
 
 // ======================== READ CURRENTS ======================== 
@@ -482,10 +488,10 @@ uint8_t getMotorFault(uint8_t motor) {
 // pwm -- an int, 0 - 2^PWM_RES, designating duty cycle
 void setMotorPWM(uint8_t motor, uint16_t pwm) {
   switch(motor) {
-    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); m1_usePID = false; break;
-    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); m2_usePID = false; break;
-    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); m3_usePID = false; break;
-    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); m4_usePID = false; break;
+    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
+    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
+    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
+    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
   }
 }
 
@@ -559,7 +565,7 @@ boolean getMotorDirection(uint8_t motor) {
 // Gets the current motor speed, in rpm.
 // motor -- an int, 1-4, designating which motor to check
 // Returned value is rpm
-uint16_t getMotorRPM(uint8_t motor) {
+double getMotorRPM(uint8_t motor) {
   switch(motor) {
     case 1: return motor1_rpm;
     case 2: return motor2_rpm;
@@ -629,23 +635,21 @@ void useBrakeMotor(uint8_t motor, boolean isBrake) {
 // Sets both IN pins to high to set motors to VCC - VCC
 void brakeMotor(uint8_t motor) {
   switch(motor) {
-    case 1: setMotorPWM(MOTOR1, 0);
-            mcp.digitalWrite(IN1_A, HIGH);
+    case 1: mcp.digitalWrite(IN1_A, HIGH);
             mcp.digitalWrite(IN1_B, HIGH);
+            setMotorPWM(MOTOR1, 0);
             break;
-    case 2: setMotorPWM(MOTOR2, 0);
-            mcp.digitalWrite(IN2_A, HIGH);
+    case 2: mcp.digitalWrite(IN2_A, HIGH);
             mcp.digitalWrite(IN2_B, HIGH);
+            setMotorPWM(MOTOR2, 0);
             break;
-    case 3: setMotorPWM(MOTOR3, 0);
-            mcp.digitalWrite(IN3_A, HIGH);
+    case 3: mcp.digitalWrite(IN3_A, HIGH);
             mcp.digitalWrite(IN3_B, HIGH);
+            setMotorPWM(MOTOR3, 0);
             break;
-    case 4: setMotorPWM(MOTOR4, 0);
-            setMotorDirection(MOTOR4,true);
-            mcp.digitalWrite(IN4_A, HIGH);
-            mcp.digitalWrite(IN4_B, LOW);
-            Serial.println("braking motor");
+    case 4: mcp.digitalWrite(IN4_A, HIGH);
+            mcp.digitalWrite(IN4_B, HIGH);
+            setMotorPWM(MOTOR4, 0);
             break;
   }
 }
@@ -919,25 +923,29 @@ void runMotor1ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR1);
   long targetTicks = curTicks + (rots * m1_ppr);
   if(isRPM) m1_targetRPM = rpmOrPwm;
-  if(!isRPM) motor1_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR1, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR1);
   }
   if(isRPM) m1_targetRPM = 0;
-  if(!isRPM) motor1_pwm = 0;
+  releaseMotor(MOTOR1);
+  if(!isRPM) setMotorPWM(MOTOR1, 0);
 }
 
 void runMotor2ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m2_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR2);
-  long targetTicks = curTicks + (rots * m2_ppr);
+  long targetTicks = curTicks + (rots * m2_ppr * 4);
   if(isRPM) m2_targetRPM = rpmOrPwm;
-  if(!isRPM) motor2_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR2, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR2);
   }
   if(isRPM) m2_targetRPM = 0;
-  if(!isRPM) motor2_pwm = 0;
+  releaseMotor(MOTOR2);
+  if(!isRPM) setMotorPWM(MOTOR2, 0);
 }
 
 void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
@@ -945,12 +953,14 @@ void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR3);
   long targetTicks = curTicks + (rots * m3_ppr);
   if(isRPM) m3_targetRPM = rpmOrPwm;
-  if(!isRPM) motor3_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR3, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR3);
   }
   if(isRPM) m3_targetRPM = 0;
-  if(!isRPM) motor3_pwm = 0;
+  releaseMotor(MOTOR3);
+  if(!isRPM) setMotorPWM(MOTOR3, 0);
 }
 
 void runMotor4ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
@@ -958,12 +968,14 @@ void runMotor4ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR4);
   long targetTicks = curTicks + (rots * m4_ppr);
   if(isRPM) m4_targetRPM = rpmOrPwm;
-  if(!isRPM) motor4_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR4, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR4);
   }
   if(isRPM) m4_targetRPM = 0;
-  if(!isRPM) motor4_pwm = 0;
+  releaseMotor(MOTOR4);
+  if(!isRPM) setMotorPWM(MOTOR4, 0);
 }
 
 
@@ -1001,49 +1013,49 @@ void setMotorSpeed(uint8_t motor, double targetRPM) {
 // Run PID algorithm for motor 1
 void runMotor1PID() {
   m1_err = m1_targetRPM - motor1_rpm;
-  motor1_pwm = round((m1_Kp * m1_err) + (m1_Ki * m1_integral) + (m1_Kd * m1_derivative));
-  if(motor1_pwm > pow(2,PWM_RES)) { motor1_pwm = pow(2,PWM_RES); }
-  else if (motor1_pwm < 0) { motor1_pwm = 0; }
-  else m1_integral = m1_integral + (m1_err * timeStep);
-  m1_derivative = (m1_err - m1_errLast) / timeStep;
+  m1_optPWM = round((m1_Kp * m1_err) + (m1_Ki * m1_integral) + (m1_Kd * m1_derivative));
+  if(m1_optPWM > pow(2,PWM_RES)) { m1_optPWM = pow(2,PWM_RES); }
+  else if (m1_optPWM < 0) { m1_optPWM = 0; }
+  else m1_integral = m1_integral + (m1_err * (float)timeStep);
+  m1_derivative = (m1_err - m1_errLast) / (float)timeStep;
   m1_errLast = m1_err;
-  setMotorPWM(MOTOR1, motor1_pwm);
+  setMotorPWM(MOTOR1, (uint8_t)m1_optPWM);
 }
 
 // Run PID algorithm for motor 2
 void runMotor2PID() {
   m2_err = m2_targetRPM - motor2_rpm;
-  motor2_pwm = round((m2_Kp * m2_err) + (m2_Ki * m2_integral) + (m2_Kd * m2_derivative));
-  if(motor2_pwm > pow(2,PWM_RES)) { motor2_pwm = pow(2,PWM_RES); }
-  else if (motor2_pwm < 0) { motor2_pwm = 0; }
-  else m2_integral = m2_integral + (m2_err * timeStep);
-  m2_derivative = (m2_err - m2_errLast) / timeStep;
+  m2_optPWM = round((m2_Kp * m2_err) + (m2_Ki * m2_integral) + (m2_Kd * m2_derivative));
+  if(m2_optPWM > pow(2,PWM_RES)) { m2_optPWM = pow(2,PWM_RES); }
+  else if (m2_optPWM < 0) { m2_optPWM = 0; }
+  else m2_integral = m2_integral + (m2_err * (float)timeStep);
+  m2_derivative = (m2_err - m2_errLast) / (float)timeStep;
   m2_errLast = m2_err;
-  setMotorPWM(MOTOR2, motor2_pwm);
+  setMotorPWM(MOTOR2, (uint8_t)m2_optPWM);
 }
 
 // Run PID algorithm for motor 3
 void runMotor3PID() {
   m3_err = m3_targetRPM - motor3_rpm;
-  motor3_pwm = round((m3_Kp * m3_err) + (m3_Ki * m3_integral) + (m3_Kd * m3_derivative));
-  if(motor3_pwm > pow(2,PWM_RES)) { motor3_pwm = pow(3,PWM_RES); }
-  else if (motor3_pwm < 0) { motor3_pwm = 0; }
-  else m3_integral = m3_integral + (m3_err * timeStep);
-  m3_derivative = (m3_err - m3_errLast) / timeStep;
+  m3_optPWM = round((m3_Kp * m3_err) + (m3_Ki * m3_integral) + (m3_Kd * m3_derivative));
+  if(m3_optPWM > pow(2,PWM_RES)) { m3_optPWM = pow(2,PWM_RES); }
+  else if (m3_optPWM < 0) { m3_optPWM = 0; }
+  else m3_integral = m3_integral + (m3_err * (float)timeStep);
+  m3_derivative = (m3_err - m3_errLast) / (float)timeStep;
   m3_errLast = m3_err;
-  setMotorPWM(MOTOR3, motor3_pwm);
+  setMotorPWM(MOTOR3, (uint8_t)m3_optPWM);
 }
 
 // Run PID algorithm for motor 4
 void runMotor4PID() {
   m4_err = m4_targetRPM - motor4_rpm;
-  motor4_pwm = round((m4_Kp * m4_err) + (m4_Ki * m4_integral) + (m4_Kd * m4_derivative));
-  if(motor4_pwm > pow(2,PWM_RES)) { motor4_pwm = pow(2,PWM_RES); }
-  else if (motor4_pwm < 0) { motor4_pwm = 0; }
-  else m4_integral = m4_integral + (m4_err * timeStep);
-  m4_derivative = (m4_err - m4_errLast) / timeStep;
+  m4_optPWM = round((m4_Kp * m4_err) + (m4_Ki * m4_integral) + (m4_Kd * m4_derivative));
+  if(m4_optPWM > pow(2,PWM_RES)) { m4_optPWM = pow(2,PWM_RES); }
+  else if (m4_optPWM < 0) { m4_optPWM = 0; }
+  else m4_integral = m4_integral + (m4_err * (float)timeStep);
+  m4_derivative = (m4_err - m4_errLast) / (float)timeStep;
   m4_errLast = m4_err;
-  setMotorPWM(MOTOR4, motor4_pwm);
+  setMotorPWM(MOTOR4, (uint8_t)m4_optPWM);
 }
 
 // Checks if there's a fault, either overtemp, voltage, or overcurrent
@@ -1177,16 +1189,18 @@ void readPacket() {
 
 // ======================== PRIMARY LOOP  ======================== 
 
-Metro testTimer = Metro(2000);
+Metro testTimer = Metro(10000);
 void loop() {
-  //readCurrents();
-  //readFaultStates();
-  //fixFaults();
-  //updateRPMs();
-  //checkCurrents();
-  //runPID();
-  //updateLED();
-  //if(serialAvailable) readPacket();
-  //updateBatteryVoltage();
-  if(testTimer.check() == 1) setMotorDirection(MOTOR2,!motor2_cw);
+  /*readCurrents();
+  readFaultStates();
+  fixFaults();
+  updateRPMs();
+  checkCurrents();
+  runPID();
+  updateLED();
+  if(serialAvailable) readPacket();
+  updateBatteryVoltage();
+  Serial.println(getMotorRPM(MOTOR2));*/
+  Serial.write(componentId_mask);
+  Serial.println(((byte)(0xFF) & componentId_mask), BYTE);
 }
