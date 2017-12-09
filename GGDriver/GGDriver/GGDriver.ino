@@ -52,6 +52,8 @@ volatile boolean serialAvailable = false;
 #define FID_STEPSPD   0x1A  // Set Stepper Speed, in RPM
 #define FID_ONESTP    0x1B  // Advance One Step
 #define FID_STEPREL   0x1C  // Release Stepper
+#define FID_SETPPR    0x1D  // Set Motor PPR
+#define FID_ROTLIN    0x1E  // Rotate for a linear distance
 
 // ======================== LED DEFINITION  ======================== 
 // Pins for RGB LED cathodes -- drive LOW to enable particular color
@@ -189,10 +191,10 @@ uint16_t motor4_coastSpd = 500;
 // Number of encoder pulses per revolution of the motor shaft.
 // This is used to determine RPM, and is specific for every motor.
 // Default is 134.4, which is the ppr for an Andymark Neverest 19.2:1
-float m1_ppr = 134.4;
+float m1_ppr = 420.0;
 float m2_ppr = 420.0;
-float m3_ppr = 134.4;
-float m4_ppr = 420.0;//134.4;
+float m3_ppr = 420.0;
+float m4_ppr = 420.0;
 
 // FAULT STATES
 // Fault state for each motor, as determined by the bridge chip.
@@ -222,7 +224,7 @@ uint16_t timeStep = 20;
 // Whether to use PID. If true, enables setting RPM via PID.
 // If false, motors are driven just by PWM. 
 boolean m1_usePID = false;
-boolean m2_usePID = true;
+boolean m2_usePID = false;
 boolean m3_usePID = false;
 boolean m4_usePID = false;
 
@@ -588,6 +590,19 @@ double getMotorCurrent(uint8_t motor) {
   }
 }
 
+// ======================== SET MOTOR PPR  ======================== 
+// Sets PPR for a given motor
+// motor -- an int, 1-4, designating which motor to check
+// ppr -- double, the number of pulses of a quadrature encoder per shaft revolution
+void setMotorPPR(uint8_t motor, double ppr) {
+  switch(motor) {
+    case 1: m1_ppr = ppr; break;
+    case 2: m2_ppr = ppr; break;
+    case 3: m3_ppr = ppr; break;
+    case 4: m4_ppr = ppr; break;
+  }
+}
+
 // ======================== RETURN ENCODER TICKS  ======================== 
 // Returns the current encoder ticks
 // motor -- an int, 1-4, designating which motor to check
@@ -899,6 +914,17 @@ uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
   }
 }
 
+// ======================== ROTATE FOR LINEAR DISTANCE  ======================== 
+// This function rotates for a given linear distance given a wheel circumfrence, at a given PWM
+// motor -- an int, 1-4, designating which servo to control
+/*void rotateMotorForDistance(uint8_t motor, double cirum, uint8_t distance, uint8_t setPWM) {
+  switch(motor) {
+    case 1: runMotor1ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 2: runMotor2ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 3: runMotor3ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 4: runMotor4ForRotations(rots, rpmOrPwm, isRPM); break;
+  }
+}*/
 
 // ======================== ROTATE AT GIVEN SPEED  ======================== 
 // This function rotates for a given number of rotations at a given speed
@@ -1104,7 +1130,7 @@ void functionParser(uint8_t comp, uint8_t fid, uint8_t parameter1, uint8_t param
   // Motor Functions
   // Determine what function to call by FID, then call it with the requisite parameters
   // If a function returns a value, store in appropriate response variable for sending later
-  if(fid <= FID_FAULT)  {
+  if((fid <= FID_FAULT) || (fid == FID_SETPPR) || (fid = FID_ROTLIN))  {
     switch(fid) {
       case FID_SETPWM:    setMotorPWM(comp, parameter1);                                    break;
       case FID_SETILIM:   setMotorCurrentLimit(comp, (parameter1 * (30.0/255.0)));          break;
@@ -1123,6 +1149,8 @@ void functionParser(uint8_t comp, uint8_t fid, uint8_t parameter1, uint8_t param
       case FID_STOP:      stopMotor(comp);                                                  break;
       case FID_REL:       releaseMotor(comp);                                               break;
       case FID_FAULT:     responseByte = getMotorFault(comp); type = 2;                     break;
+      case FID_SETPPR:    setMotorPPR(comp, parameter1);                                    break;
+      //case FID_SETPPR:    setMotorPPR(comp, parameter1);                                    break;
     }
     // Servo Functions
   } else if (fid <= FID_SETSPD) {
