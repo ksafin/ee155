@@ -15,9 +15,9 @@ volatile boolean serialAvailable = false;
 
 // BIT MASKS
 // Masks for extracting relevant data
-#define componentId_mask 00000011
-#define functionId_mask 11111100
-#define parameterQty_mask 00000011
+#define componentId_mask 0x03
+#define functionId_mask 0xFC
+#define parameterQty_mask 0x03
 
 // ACKNOWLEDGE RESPONSE
 #define ACK 0xAA
@@ -444,8 +444,7 @@ void setup() {
 
   Serial.begin(115200);
 
-  //setMotorDirection(MOTOR2,true);
-  //rotateMotorForRotations(MOTOR2, 10, 80, true);
+  MASTER_SERIAL.begin(37600);
 }
 
 // ======================== READ CURRENTS ======================== 
@@ -1189,9 +1188,8 @@ void readPacket() {
 
 // ======================== PRIMARY LOOP  ======================== 
 
-Metro testTimer = Metro(10000);
 void loop() {
-  /*readCurrents();
+  readCurrents();
   readFaultStates();
   fixFaults();
   updateRPMs();
@@ -1200,7 +1198,5 @@ void loop() {
   updateLED();
   if(serialAvailable) readPacket();
   updateBatteryVoltage();
-  Serial.println(getMotorRPM(MOTOR2));*/
-  Serial.write(componentId_mask);
-  Serial.println(((byte)(0xFF) & componentId_mask), BYTE);
+  
 }
