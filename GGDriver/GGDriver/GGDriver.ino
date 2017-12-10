@@ -728,13 +728,13 @@ void coastMotor(uint8_t motor) {
 void stopMotor(uint8_t motor) {
    switch(motor) {
     case 1: if(motor1_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 2: if(motor2_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 3: if(motor3_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 4: if(motor4_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
   }
 }
 
