@@ -7,6 +7,7 @@ REG_EFR = 0x02
 REG_FCR = 0x02
 REG_THR = 0x00
 REG_RHR = 0x00
+REG_RHR = 0x00
 REG_MCR = 0x04
 REG_LCR = 0x03
 REG_DLL = 0x00
@@ -87,24 +88,6 @@ class SpiDev:
         self.enableLED(GREEN_LED)
         if self.debug:
             print "Enabled Green LED"
-        
-    def spiWrite(self, address, payload_list):
-        addr_byte = (0 << 7) + (address << 3) + (0 << 1)
-        if type(payload_list) is list:
-            out_list = [addr_byte] + payload_list
-        else:
-            out_list = [addr_byte, payload_list]
-
-        self.spi_obj.xfer2(out_list)
-
-    def spiRead(self, address, num_bytes):
-        send_list = [(1 << 7) + (address << 3) + (0 << 1)]
-
-        for i in range(0, num_bytes):
-            send_list.append(0xFF)
-
-        out_list = self.spi_obj.xfer2(send_list)
-        return out_list[1:(1+num_bytes)]
     
     def writeRegister(self, addr, value):
         self.spi_obj.xfer2([addr<<3,value])
@@ -119,10 +102,15 @@ class SpiDev:
 
     def writeByte(self, byte):
         while True:
-            reg_val = self.spiRead(REG_LSR, 1)[0]
+            reg_val = self.readRegister(REG_LSR)
             if not ((reg_val & 0x20) == 0):
                 break
         self.writeRegister(REG_THR, byte)
+
+    def readByte(self):
+        while not hasData:
+        val = readRegister(REG_RHR)
+        return val
 
     def writeBytes(self, bytes):
         self.enableLED(RED_LED)
@@ -131,8 +119,17 @@ class SpiDev:
         self.enableLED(LED_NONE)
         time.sleep(0.001)
 
+    def readBytes(self, numbytes):
+        self.enableLED(BLUE_LED)
+        bytes = list()
+        for i in range(0,numbytes):
+            bytes.append(readByte())
+        self.enableLED(LED_NONE)
+        time.sleep(0.001)
+        return bytes
+
     def hasData(self):
-        return self.readRegister(REG_RXLVL)
+        return self.readRegister(REG_RXLVL) > 0
 
     def enableDebug(self):
         self.debug = True
