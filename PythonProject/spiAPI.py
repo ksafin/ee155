@@ -24,6 +24,8 @@ GREEN_LED = 0x02
 BLUE_LED = 0x04
 LED_NONE = 0x00
 
+WAIT_TICKS = 10000
+
 class SpiDev:
 
     def __init__(self, bus, device):
@@ -108,9 +110,12 @@ class SpiDev:
         self.writeRegister(REG_THR, byte)
 
     def readByte(self):
-        while not hasData:
-        val = readRegister(REG_RHR)
-        return val
+        ticks = 0
+        while (ticks < WAIT_TICKS) and not self.hasData():
+            ticks = ticks + 1
+        if self.hasData():
+            return readRegister(REG_RHR)
+        return None
 
     def writeBytes(self, bytes):
         self.enableLED(RED_LED)

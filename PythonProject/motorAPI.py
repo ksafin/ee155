@@ -2,6 +2,12 @@ import spi_util as su
 import packet_util as pu
 
 class Motor:
+
+    NEVEREST_3P9_PPR = 25.9
+    NEVEREST_20_PPR = 134.4
+    NEVEREST_40_PPR = 280
+    NEVEREST_60_PPR = 420
+
     def __init__(self,spi_obj,motor_id):
         self.spi = spi_obj
         self.id = motor_id
