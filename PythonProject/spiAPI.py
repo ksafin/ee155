@@ -129,6 +129,7 @@ class SpiDev:
         for byte in bytes:
             writeByte(byte)
         self.enableLED(LED_NONE)
+        time.sleep(0.001)
 
     def hasData(self):
         return self.readRegister(REG_RXLVL)
