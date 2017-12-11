@@ -1,9 +1,7 @@
-import spidev
-import time
 
 import spi_util as su
 
-def Servo:
+class Servo:
     def __init__(self,spi_obj,servo_id):
         self.spi = spi_obj
         self.id = servo_id
@@ -16,7 +14,7 @@ def Servo:
         val_bytes = su.IntToBytes(pwm_val,2)
         byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Set Continuous Servo Speed
@@ -26,4 +24,4 @@ def Servo:
         val_bytes = su.IntToBytes(rpm_int,2)
         byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)

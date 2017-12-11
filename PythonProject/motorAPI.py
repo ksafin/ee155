@@ -1,14 +1,12 @@
-import spidev
-import time
 
 import spi_util as su
 
-def Motor:
+class Motor:
     def __init__(self,spi_obj,motor_id):
         self.spi = spi_obj
         self.id = motor_id
 
-        self.PID = false
+        self.PID = False
 
     # Set pwm of motor motor_id on board with spi_obj to 12 Bit int pwm_val
     #define FID_SETPWM   0x00  // Set Motor PWM
@@ -17,7 +15,7 @@ def Motor:
         val_bytes = su.IntToBytes(pwm_val,2)
         byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Set current limit of motor motor_id on board with spi_obj to cur_val in units of 1 mA
@@ -27,7 +25,7 @@ def Motor:
         val_bytes = su.IntToBytes(cur_val,2)
         in_bytes = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, in_bytes)
+        self.spi.spiWrite(0, in_bytes)
 
 
     # Read current motor speed in RPM
@@ -35,8 +33,8 @@ def Motor:
     def getSpeed(self):
         fun_id = 2
         in_bytes = [self.id,(fun_id << 2) + 0]
-        su.spiWrite(self.spi,0,in_bytes)
-        out_bytes = su.spiRead(self.spi, 0, 2)
+        self.spi.spiWrite(0,in_bytes)
+        out_bytes = self.spi.spiRead(0, 2)
         out_speed = su.BytesToInt(out_bytes)
         return out_speed
 
@@ -46,8 +44,8 @@ def Motor:
     def getDirection(self):
         fun_id = 3
         in_bytes = [self.id,(fun_id << 2) + 0]
-        su.spiWrite(self.spi,0,in_bytes)
-        out_bytes = su.spiRead(self.spi, 0, 1)
+        self.spi.spiWrite(0,in_bytes)
+        out_bytes = self.spi.spiRead(0, 1)
         return (out_bytes[0] > 0)
 
 
@@ -56,8 +54,8 @@ def Motor:
     def getCurrent(self):
         fun_id = 4
         in_bytes = [self.id,(fun_id << 2) + 0]
-        su.spiWrite(self.spi,0,in_bytes)
-        out_bytes = su.spiRead(self.spi, 0, 2)
+        self.spi.spiWrite(0,in_bytes)
+        out_bytes = self.spi.spiRead(0, 2)
         out_current = su.BytesToInt(out_bytes)
         return out_current
 
@@ -69,7 +67,7 @@ def Motor:
         val_bytes = [kp_val,ki_val,kd_val]
         in_bytes = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, in_bytes)
+        self.spi.spiWrite(0, in_bytes)
 
 
     # Set Motor speed as an RPM int value
@@ -79,7 +77,7 @@ def Motor:
         val_bytes = su.IntToBytes(rpm_val,2)
         byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Reset Encoders
@@ -88,7 +86,7 @@ def Motor:
         fun_id = 7
         byte_list = [self.id, (fun_id << 2) + 2]
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Get encoder ticks as int
@@ -97,7 +95,7 @@ def Motor:
         fun_id = 8
         in_bytes = [self.id,(fun_id << 2) + 0]
 
-        out_bytes = su.spiRead(self.spi, 0, 2)
+        out_bytes = self.spi.spiRead(0, 2)
         out_ticks = su.BytesToInt(out_bytes)
         return out_ticks
 
@@ -109,7 +107,7 @@ def Motor:
         val_bytes = su.IntToBytes(pwm_val,2)
         byte_list = [self.id, (fun_id << 2) + 2] + [rotation_num] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
 
@@ -119,7 +117,7 @@ def Motor:
         val_bytes = su.IntToBytes(rpm_val,2)
         byte_list = [self.id, (fun_id << 2) + 3] + [rotation_num] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Enable coast mode
@@ -129,7 +127,7 @@ def Motor:
         val_bytes = su.IntToBytes(rpm_val,2)
         byte_list = [self.id, (fun_id << 2) + 0]
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Enable brake mode
@@ -138,7 +136,7 @@ def Motor:
         fun_id = 12
         byte_list = [self.id, (fun_id << 2) + 0]
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Set coast speed
@@ -148,7 +146,7 @@ def Motor:
         val_bytes = su.IntToBytes(rpm_val,2)
         byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Stop Motor
@@ -163,7 +161,7 @@ def Motor:
 
         byte_list = [self.id, (fun_id << 2) + 0] + val_bytes
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Release Motor
@@ -172,7 +170,7 @@ def Motor:
         fun_id = 15
         byte_list = [self.id, (fun_id << 2) + 0]
 
-        su.spiWrite(self.spi, 0, byte_list)
+        self.spi.spiWrite(0, byte_list)
 
 
     # Get motor fault as string
@@ -180,8 +178,8 @@ def Motor:
     def getFault(self):
         fun_id = 16
         in_bytes = [self.id,(fun_id << 2) + 0]
-        su.spiWrite(self.spi, 0, in_bytes)
-        out_byte = su.spiRead(self.spi, 0, 1)
+        self.spi.spiWrite(0, in_bytes)
+        out_byte = self.spi.spiRead(0, 1)
         if (out_byte == 0):
             out_fault = 'NOFAULT'
         elif (out_byte == 1):

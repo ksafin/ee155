@@ -35,24 +35,37 @@ def BytesToInt(in_bytes):
     return out_int
 
 
+def wait(in_ticks):
+    ticks = 10000
+    while(ticks > 0):
+        ticks -= 1
+
+
 def spiWrite(spi_obj,address,payload_list):
     addr_byte = (0 << 7) + (address << 3) + (0 << 1)
     # addr_byte = format((0 << 7) + (address << 3) + (0 << 1), '#010b')
-    spi_obj.xfer2([addr_byte] + payload_list + [10**6, 0, 8])
+    if type(payload_list) is list:
+        out_list = [addr_byte] + payload_list
+    else:
+        out_list = [addr_byte, payload_list]
+    
+    # spi_obj.xfer2([addr_byte] + payload_list) #, speed_hz = 10**6, delay_us = 1, bits_per_word = 8)
+    print(out_list)
+    spi_obj.writebytes(out_list)
 
 
 def spiRead(spi_obj,address,num_bytes):
     addr_byte = (1 << 7) + (address << 3) + (0 << 1)
     # addr_byte = format((0 << 7) + (address << 3) + (0 << 1), '#010b')
-    spi_obj.xfer2([addr_byte] + [10**6, 0, 8])
-    out_val = spi_obj.readbytes(num_bytes)
+    out_val = spi_obj.xfer2([addr_byte]) # + [10**6, 0, 8])
+    # out_val = spi_obj.readbytes(num_bytes)
 
     return out_val
 
 
 def spiInit(bus,device):
     spi_obj = spidev.SpiDev()
-    spi_obj.lsbfirst = false
+    spi_obj.lsbfirst = False
     spi_obj.open(bus,device)
 
     # Set baud rate divisor
