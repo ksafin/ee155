@@ -35,14 +35,6 @@ class SpiDev:
         reg_val = (reg_val | 0x08)
         self.writeRegister(REG_IOCONTROL, reg_val)
         
-        time.sleep(0.1)
-        
-        # TEST DEVICE
-        for i in range(100,200):
-            self.writeRegister(REG_SPR, i)
-            reg_val = self.readRegister(REG_SPR)
-            print reg_val
-
         # ENABLE FIFO
         reg_val = self.readRegister(REG_FCR)
         reg_val = (reg_val | 0x01)
@@ -78,18 +70,7 @@ class SpiDev:
 
         # ENABLE LED TO SAY "ALL GOOD"
         self.enableLED(GREEN_LED)
-        reg_val = self.readRegister(REG_IOSTATE)
-        '''
-        self.writeByte(0xFF)
-        self.writeByte(0xAA)
-        self.writeByte(0x99)
-        self.writeByte(0x99)
-        self.writeByte(0x99)
-        self.writeByte(0x99)
-        self.writeByte(0x99)
-        self.writeByte(0x99)
-        '''
-
+        
     def spiWrite(self, address, payload_list):
         addr_byte = (0 << 7) + (address << 3) + (0 << 1)
         if type(payload_list) is list:
@@ -114,7 +95,6 @@ class SpiDev:
     def readRegister(self, addr):
         reg = 0x80 | (addr << 3)
         val = self.spi_obj.xfer2([reg, 0xFF])
-        print val
         return val[1]
 
     def enableLED(self, led):
@@ -126,10 +106,18 @@ class SpiDev:
             if not ((reg_val & 0x20) == 0):
                 break
         self.writeRegister(REG_THR, byte)
-        print "wrote byte"
 
     def hasData(self):
         return self.readRegister(REG_RXLVL)
+    
+    def ping(self):
+        self.writeRegister(REG_SPR, 0x55)
+        if self.readRegister(REG_SPR) != 0x55:
+            return False
+        self.writeRegister(REG_SPR, 0xAA)
+        if self.readRegister(REG_SPR) != 0xAA:
+            return False
+        return True
 
     def readByte(self):
         self.readRegister(REG_RHR)
