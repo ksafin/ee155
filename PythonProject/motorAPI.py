@@ -2,19 +2,28 @@ import spi_util as su
 import packet_util as pu
 
 class Motor:
-
     NEVEREST_3P9_PPR = 25.9
     NEVEREST_20_PPR = 134.4
     NEVEREST_40_PPR = 280
     NEVEREST_60_PPR = 420
+
+    NEVEREST3P9 = 0
+    NEVEREST20 = 1
+    NEVEREST40 = 2
+    NEVEREST60 = 3
+
+    NO_FAULT = 0
+    CURRENT_FAULT = 1
+    TEMP_FAULT = 2
+    DOUBLE_FAULT = 3
 
     def __init__(self,spi_obj,motor_id):
         self.spi = spi_obj
         self.id = motor_id
         self.cw = True
         self.PIDSet = False
-
         self.isPID = False
+        self.ppr = 0
 
     # Set motor to a PWM and a given direction
     # pwm -- value from -255 to 255
@@ -37,6 +46,37 @@ class Motor:
         self.spi.writeBytes(packet)
         return True
 
+    # Sets ppr for the motor
+    # ppr -- Float value > 0
+    # Function ID -- 0x1D
+    def setPPR(self, ppr):
+        # Do not execute if PPR is out of range
+        if ppr < 0:
+            return False
+
+        # Update internally
+        self.ppr = ppr
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x1D, self.id, su.FloatToBytes(ppr))
+        self.spi.writeBytes(packet)
+        return True
+
+    def setPPRNeveRest(self, neverest):
+        # Do not execute if invalid index is passed in
+        if (neverest < 0) or (neverest > 3):
+            return False
+
+        if neverest == Motor.NEVEREST3P9:
+            self.setPPR(self, Motor.NEVEREST_3P9_PPR)
+        if neverest == Motor.NEVEREST20:
+            self.setPPR(self, Motor.NEVEREST_20_PPR)
+        if neverest == Motor.NEVEREST40:
+            self.setPPR(self, Motor.NEVEREST_40_PPR)
+        if neverest == Motor.NEVEREST60:
+            self.setPPR(self, Motor.NEVEREST_60_PPR)
+
+        return True
 
     # Sets current limit of motor, in mA
     # ilim -- Current Limit, as a value from 0 - 30,000, in mA
@@ -53,9 +93,21 @@ class Motor:
 
 
     # Read current motor speed in RPM
-    # TODO
+    # Function ID -- 0x06
     def getSpeed(self):
+        # Assemble packet and write to SPI
+        packet = pu.getPacket(0x06, self.id, list())
+        self.spi.writeBytes(packet)
 
+        # Read two bytes
+        resp = self.spi.readBytes(2)
+
+        # Check if the read failed, if yes, return -1
+        if pu.isEmpty(resp):
+            return -1
+
+        # If read succeeded, return rpm as short
+        return su.BytesToShort(resp)
 
     # Get motor direction as boolean
     # Returns True for cw, False for ccw
@@ -63,9 +115,21 @@ class Motor:
         return self.cw
 
     # Returns motor current as short, in units of mA
-    # TODO
+    # Function ID: 0x04
     def getCurrent(self):
+        # Assemble packet and write to SPI
+        packet = pu.getPacket(0x04, self.id, list())
+        self.spi.writeBytes(packet)
 
+        # Read two bytes
+        resp = self.spi.readBytes(2)
+
+        # Check if the read failed, if yes, return -1
+        if pu.isEmpty(resp):
+            return -1
+
+        # If read succeeded, return current in mA as short
+        return su.BytesToShort(resp)
 
     # Set PID constants, but does not enable PID
     # kp -- Proportionality constant, as a float
@@ -88,6 +152,23 @@ class Motor:
         # Assemble packet and write to SPI, return true for success
         packet = pu.getPacket(0x05, self.id, data)
         self.spi.writeBytes(packet)
+        return True
+
+    # PID methods for NeveRests
+    def setPIDNeveRest(self, neverest):
+        # Do not execute if invalid index is passed in
+        if (neverest < 0) or (neverest > 3):
+            return False
+
+        if neverest == Motor.NEVEREST3P9:
+            # Set PID constants
+        if neverest == Motor.NEVEREST20:
+            # Set PID constants
+        if neverest == Motor.NEVEREST40:
+            # Set PID constants
+        if neverest == Motor.NEVEREST60:
+            self.setPID(self, 0.8, 0.2, 0.05)
+
         return True
 
     # Disable PID
@@ -149,10 +230,22 @@ class Motor:
         return True
 
 
-    # Get Encoder Ticks since reset, as a long
+    # Get Encoder Ticks since reset, as an int
     # Function ID -- 0x08
-    # TODO
     def getEncoder(self):
+        # Assemble packet and write to SPI
+        packet = pu.getPacket(0x08, self.id, list())
+        self.spi.writeBytes(packet)
+
+        # Read four bytes
+        resp = self.spi.readBytes(4)
+
+        # Check if the read failed, if yes, return -1
+        if pu.isEmpty(resp):
+            return -1
+
+        # If read succeeded, return rpm as int
+        return su.BytesToInt(resp)
 
 
     # Rotate Motor for a fixed number of rotations at a given PWM
@@ -260,6 +353,20 @@ class Motor:
 
 
     # Get motor fault as string
+    # Compare output to internal constants to ascertain fault
+    # FAULT_CURRENT, NO_FAULT, TEMP_FAULT, DOUBLE_FAULT
     # Function ID -- 0x10
-    # TODO
     def getFault(self):
+        # Assemble packet and write to SPI
+        packet = pu.getPacket(0x10, self.id, list())
+        self.spi.writeBytes(packet)
+
+        # Read one byte
+        resp = self.spi.readBytes(1)
+
+        # Check if the read failed, if yes, return -1
+        if pu.isEmpty(resp):
+            return -1
+
+        # If read succeeded, return first element, the fault state
+        return resp[0]
