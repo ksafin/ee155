@@ -20,7 +20,8 @@ CRYSTAL_FREQ = 1843200
 BAUD_RATE = 37600
 RED_LED = 0x01 
 GREEN_LED = 0x02
-BLUE_LED = 0x04 
+BLUE_LED = 0x04
+LED_NONE = 0x00
 
 class SpiDev:
 
@@ -29,16 +30,24 @@ class SpiDev:
         self.spi_obj.open(bus, device)
         self.spi_obj.lsbfirst = False
         self.spi_obj.max_speed_hz = 10**6
-        
+        self.debug = False
+        if self.debug:
+            print "Initialized SPI Bus"
+
+    def initializeRegisters(self):
         # RESET DEVICE
         reg_val = self.readRegister(REG_IOCONTROL)
         reg_val = (reg_val | 0x08)
         self.writeRegister(REG_IOCONTROL, reg_val)
+        if self.debug:
+            print "Reset Device"
         
         # ENABLE FIFO
         reg_val = self.readRegister(REG_FCR)
         reg_val = (reg_val | 0x01)
         self.writeRegister(REG_FCR, reg_val)
+        if self.debug:
+            print "Enabled FIFO Buffer"
 
         # SET BAUD RATE
         reg_val = self.readRegister(REG_MCR)
@@ -50,26 +59,34 @@ class SpiDev:
         reg_val = (reg_val | 0x80)
         self.writeRegister(REG_LCR, reg_val)
 
-        # SET TO 37600 BAUD (DIVISOR = 3)
+        # SET TO 38400 BAUD (DIVISOR = 3)
         self.writeRegister(REG_DLL, 0x03)
         self.writeRegister(REG_DLH, 0x00)
 
         reg_val = (reg_val & 0x7F)
         self.writeRegister(REG_LCR, reg_val)
+        if self.debug:
+            print "Set Baud Rate to 38400"
 
         # SET WORDS TO 8 BITS, NO PARITY
         reg_val = self.readRegister(REG_LCR)
         reg_val = (reg_val & 0xC0)
         reg_val = (reg_val | 0x03)
         self.writeRegister(REG_LCR, reg_val)
+        if self.debug:
+            print "Set Word to 8 Bit Length"
 
         # INITIALIZE LED PINS TO OUTPUTS
         reg_val = self.readRegister(REG_IODIR)
         reg_val = (reg_val | 0x07)
         self.writeRegister(REG_IODIR, reg_val)
+        if self.debug:
+            print "Initialized GPIOs"
 
         # ENABLE LED TO SAY "ALL GOOD"
         self.enableLED(GREEN_LED)
+        if self.debug:
+            print "Enabled Green LED"
         
     def spiWrite(self, address, payload_list):
         addr_byte = (0 << 7) + (address << 3) + (0 << 1)
@@ -107,8 +124,17 @@ class SpiDev:
                 break
         self.writeRegister(REG_THR, byte)
 
+    def writeBytes(self, bytes):
+        self.enableLED(RED_LED)
+        for byte in bytes:
+            writeByte(byte)
+        self.enableLED(LED_NONE)
+
     def hasData(self):
         return self.readRegister(REG_RXLVL)
+
+    def enableDebug(self):
+        self.debug = True
     
     def ping(self):
         self.writeRegister(REG_SPR, 0x55)

@@ -1,191 +1,259 @@
-
 import spi_util as su
+import packet_util as pu
 
 class Motor:
     def __init__(self,spi_obj,motor_id):
         self.spi = spi_obj
         self.id = motor_id
+        self.cw = True
+        self.PIDSet = False
 
-        self.PID = False
+        self.isPID = False
 
-    # Set pwm of motor motor_id on board with spi_obj to 12 Bit int pwm_val
-    #define FID_SETPWM   0x00  // Set Motor PWM
-    def setPWM(self, pwm_val):
-        fun_id = 0
-        val_bytes = su.IntToBytes(pwm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
+    # Set motor to a PWM and a given direction
+    # pwm -- value from -255 to 255
+    # Function ID: 0x00
+    def setPWM(self, pwm):
+        # Do not execute if PWM is out of range or if in PID mode
+        if (pwm < -255) or (pwm > 255) or self.isPID:
+            return False
 
-        self.spi.spiWrite(0, byte_list)
+        # Update internal memory of direction
+        if pwm < 0:
+            self.cw = False
+        elif pwm > 0:
+            self.cw = True
+
+        pwm = abs(pwm)
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x00, self.id, list([pwm, int(self.cw)]))
+        self.spi.writeBytes(packet)
+        return True
 
 
-    # Set current limit of motor motor_id on board with spi_obj to cur_val in units of 1 mA
-    #define FID_SETILIM   0x01  // Set Motor Current Limit
-    def setCurrentLimit(self, cur_val):
-        fun_id = 1
-        val_bytes = su.IntToBytes(cur_val,2)
-        in_bytes = [self.id, (fun_id << 2) + 2] + val_bytes
+    # Sets current limit of motor, in mA
+    # ilim -- Current Limit, as a value from 0 - 30,000, in mA
+    # Function ID: 0x01
+    def setCurrentLimit(self, ilim):
+        # Do not execute if current limit is out of range
+        if (ilim < 0) or (ilim > 30000):
+            return False
 
-        self.spi.spiWrite(0, in_bytes)
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x01, self.id, list([su.ShortToBytes(ilim)]))
+        self.spi.writeBytes(packet)
+        return True
 
 
     # Read current motor speed in RPM
-    #define FID_GETSPD    0x02  // Get Motor Speed (RPM)
+    # TODO
     def getSpeed(self):
-        fun_id = 2
-        in_bytes = [self.id,(fun_id << 2) + 0]
-        self.spi.spiWrite(0,in_bytes)
-        out_bytes = self.spi.spiRead(0, 2)
-        out_speed = su.BytesToInt(out_bytes)
-        return out_speed
 
 
     # Get motor direction as boolean
-    #define FID_GETDIR    0x03  // Get Motor Direction
+    # Returns True for cw, False for ccw
     def getDirection(self):
-        fun_id = 3
-        in_bytes = [self.id,(fun_id << 2) + 0]
-        self.spi.spiWrite(0,in_bytes)
-        out_bytes = self.spi.spiRead(0, 1)
-        return (out_bytes[0] > 0)
+        return self.cw
 
-
-    # Gwt motor current as int in units of 1 mA
-    #define FID_GETCUR    0x04  // Get Motor Current
+    # Returns motor current as short, in units of mA
+    # TODO
     def getCurrent(self):
-        fun_id = 4
-        in_bytes = [self.id,(fun_id << 2) + 0]
-        self.spi.spiWrite(0,in_bytes)
-        out_bytes = self.spi.spiRead(0, 2)
-        out_current = su.BytesToInt(out_bytes)
-        return out_current
 
 
-    # Set PID constants
-    #define FID_SETPID    0x05  // Set PID Constants
-    def enablePID(self, kp_val, ki_val, kd_val):
-        fun_id = 5
-        val_bytes = [kp_val,ki_val,kd_val]
-        in_bytes = [self.id, (fun_id << 2) + 2] + val_bytes
+    # Set PID constants, but does not enable PID
+    # kp -- Proportionality constant, as a float
+    # kd -- Derivative constant, as a float
+    # ki -- Integral constant, as a float
+    # Function ID: 0x05
+    def setPID(self, kp, kd, ki):
+        # Do not execute if any constant is negative
+        if (kp < 0) or (kd < 0) or (ki < 0):
+            return False
 
-        self.spi.spiWrite(0, in_bytes)
+        self.isPID = True
+
+        # Convert all constants to bytes
+        data = list()
+        data.extend(su.FloatToBytes(kp))
+        data.extend(su.FloatToBytes(kd))
+        data.extend(su.FloatToBytes(ki))
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x05, self.id, data)
+        self.spi.writeBytes(packet)
+        return True
+
+    # Disable PID
+    # Internally sets to manual Mode, alerts controller
+    def disablePID(self):
+        self.isPID = False
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x03, self.id, list([0]))
+        self.spi.writeBytes(packet)
+        return True
+
+    # Enable PID
+    # Internally sets to PID Mode, alerts controller
+    # Will return false if PID constants were never set
+    def enablePID(self):
+        if not self.PIDSet:
+            return False
+
+        self.isPID = True
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x03, self.id, list([1]))
+        self.spi.writeBytes(packet)
+        return True
+
+    # Sets speed of motor, if PID is enabled, to an RPM
+    # rpm -- A short indicating speed in RPM, from -65,000 to 65,000
+    # Function ID -- 0x06
+    def setSpeed(self, rpm):
+        # Do not execute if RPM is out of bounds or not in PID mode
+        if (rpm < -65000) or (rpm > 65000) or not self.isPID:
+            return False
+
+        # Update internal memory of direction
+        if rpm < 0:
+            self.cw = False
+        elif rpm > 0:
+            self.cw = True
+
+        # Create payload
+        rpm = abs(rpm)
+        data = list()
+        data.extend(su.ShortToBytes(rpm))
+        data.append(int(self.cw))
+
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x06, self.id, data)
+        self.spi.writeBytes(packet)
+        return True
 
 
-    # Set Motor speed as an RPM int value
-    #define FID_SETSPD    0x06  // Set Motor Speed (RPM)
-    def setSpeed(self, rpm_val):
-        fun_id = 6
-        val_bytes = su.IntToBytes(rpm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
-
-        self.spi.spiWrite(0, byte_list)
-
-
-    # Reset Encoders
-    #define FID_RESENC    0x07  // Reset Motor Encoder
-    def ResetEncoder(self):
-        fun_id = 7
-        byte_list = [self.id, (fun_id << 2) + 2]
-
-        self.spi.spiWrite(0, byte_list)
+    # Reset Encoders to 0
+    # Function ID -- 0x07
+    def resetEncoder(self):
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x07, self.id, list())
+        self.spi.writeBytes(packet)
+        return True
 
 
-    # Get encoder ticks as int
-    #define FID_GETENC    0x08  // Get Motor Encoder Ticks
+    # Get Encoder Ticks since reset, as a long
+    # Function ID -- 0x08
+    # TODO
     def getEncoder(self):
-        fun_id = 8
-        in_bytes = [self.id,(fun_id << 2) + 0]
-
-        out_bytes = self.spi.spiRead(0, 2)
-        out_ticks = su.BytesToInt(out_bytes)
-        return out_ticks
 
 
-    # Rotate motor for a fixed number of rotations at given PWM
-    #define FID_ROTPWM    0x09  // Rotate for some Revs at given PWM
-    def rotatePWM(self, rotation_num, pwm_val):
-        fun_id = 9
-        val_bytes = su.IntToBytes(pwm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 2] + [rotation_num] + val_bytes
+    # Rotate Motor for a fixed number of rotations at a given PWM
+    # rots -- Number of rotations, as a float
+    # pwm -- PWM value at which to rotate, from -255 to 255
+    # Function ID -- 0x09
+    def rotatePWM(self, rots, pwm):
+        # Do not execute if PWM is out of range, rotations < 0, or if in PID mode
+        if (pwm < -255) or (pwm > 255) or (rots < 0) or self.isPID:
+            return False
 
-        self.spi.spiWrite(0, byte_list)
+        # Update internal memory of direction
+         if pwm < 0:
+             self.cw = False
+         elif pwm > 0:
+             self.cw = True
 
+        pwm = abs(pwm)
 
+        # Assemble payload -- pwm, then direction, then # rotations
+        data = list()
+        data.append(pwm)
+        data.append(int(self.cw))
+        data.extend(su.FloatToBytes(rots))
 
-    #define FID_ROTSPD    0x0A  // Rotate for some revs at given RPM
-    def rotateSpeed(self, rotation_num, rpm_val):
-        fun_id = 10
-        val_bytes = su.IntToBytes(rpm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 3] + [rotation_num] + val_bytes
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x09, self.id, data)
+        self.spi.writeBytes(packet)
+        return True
 
-        self.spi.spiWrite(0, byte_list)
+    # Rotates a motor at a given speed for a given number of rotations
+    # rots -- Number of rotations, as a float
+    # rpm -- RPM value at which to rotate, from -65000 to 65000
+    # Function ID: 0x0A
+    def rotateSpeed(self, rots, rpm):
+        # Do not execute if RPM is out of range, rotations < 0, or if not in PID mode
+        if (rpm < -65000) or (rpm > 65000) or (rots < 0) or not self.isPID:
+            return False
 
+        # Update internal memory of direction
+        if rpm < 0:
+            self.cw = False
+        elif rpm > 0:
+            self.cw = True
 
-    # Enable coast mode
-    #define FID_COAST     0x0B  // Enable Coast
-    def enableCoast(self, rotation_num, rpm_val):
-        fun_id = 11
-        val_bytes = su.IntToBytes(rpm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 0]
+        rpm = abs(rpm)
 
-        self.spi.spiWrite(0, byte_list)
+        # Assemble payload -- pwm, then direction, then # rotations
+        data = list()
+        data.extend(su.ShortToBytes(rpm))
+        data.append(int(self.cw))
+        data.extend(su.FloatToBytes(rots))
 
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0A, self.id, data)
+        self.spi.writeBytes(packet)
+        return True
 
-    # Enable brake mode
-    #define FID_BRAKE     0x0C  // Enable Brake
+    # Enables Coast Mode
+    # Function ID: 0x0B
     def enableCoast(self):
-        fun_id = 12
-        byte_list = [self.id, (fun_id << 2) + 0]
-
-        self.spi.spiWrite(0, byte_list)
-
-
-    # Set coast speed
-    #define FID_CSPD      0x0D  // Set Coast Speed
-    def setCoastSpeed(self, rpm_val):
-        fun_id = 13
-        val_bytes = su.IntToBytes(rpm_val,2)
-        byte_list = [self.id, (fun_id << 2) + 2] + val_bytes
-
-        self.spi.spiWrite(0, byte_list)
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0B, self.id, list())
+        self.spi.writeBytes(packet)
+        return True
 
 
-    # Stop Motor
-    #define FID_STOP      0x0E  // Stop Motor
-    def stop(self,brake):
-        fun_id = 14
+    # Enables Brake Mode
+    # Function ID: 0x0C
+    def enableBrake(self):
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0C, self.id, list())
+        self.spi.writeBytes(packet)
+        return True
 
-        if(brake):
-            val_bytes = [1]
-        else:
-            val_bytes = [0]
 
-        byte_list = [self.id, (fun_id << 2) + 0] + val_bytes
+    # Sets Coast Speed
+    # spd -- Coast Speed, in ms, 0-10000
+    # Function ID -- 0x0D
+    def setCoastSpeed(self, spd):
+        # Do not execute if speed is out of range
+        if (spd < 0) or (spd > 10000):
+            return False
 
-        self.spi.spiWrite(0, byte_list)
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0D, self.id, su.ShortToBytes(spd))
+        self.spi.writeBytes(packet)
+        return True
 
+    # Stops Motor (coasting or braking)
+    # Function ID -- 0x0E
+    def stop(self):
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0E, self.id, list())
+        self.spi.writeBytes(packet)
+        return True
 
     # Release Motor
-    #define FID_REL       0x0F  // Release Motor
+    # Function ID -- 0x0F
     def release(self):
-        fun_id = 15
-        byte_list = [self.id, (fun_id << 2) + 0]
-
-        self.spi.spiWrite(0, byte_list)
+        # Assemble packet and write to SPI, return true for success
+        packet = pu.getPacket(0x0F, self.id, list())
+        self.spi.writeBytes(packet)
+        return True
 
 
     # Get motor fault as string
-    #define FID_FAULT     0x10  // Get Motor Fault
+    # Function ID -- 0x10
+    # TODO
     def getFault(self):
-        fun_id = 16
-        in_bytes = [self.id,(fun_id << 2) + 0]
-        self.spi.spiWrite(0, in_bytes)
-        out_byte = self.spi.spiRead(0, 1)
-        if (out_byte == 0):
-            out_fault = 'NOFAULT'
-        elif (out_byte == 1):
-            out_fault = 'THERMALFAULT'
-        elif (out_byte == 2):
-            out_fault = 'CURRENTFAULT'
-        elif (out_byte == 3):
-            out_fault = 'VOLTAGEFAULT'
-        return out_fault
