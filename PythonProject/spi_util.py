@@ -41,7 +41,6 @@ def vartobytes(data, type, numbytes)
     data = list()
     for i in range(0,numbytes):
         data.append(int(packed[i].encode('hex'), 16))
-    data.reverse()
     return data
 
 def bytestovar(data, type)
