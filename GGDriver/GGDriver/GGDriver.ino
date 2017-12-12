@@ -940,9 +940,9 @@ void fixFaults() {
 // ======================== SERVO SET ANGLE  ======================== 
 // This function sets the angle for a given servo to a desired angle.
 // servo -- an int, 1-4, designating which servo to control
-void setServoAngle(uint8_t servo, uint16_t angle) {
+void setServoAngle(uint8_t servo, uint8_t angle) {
   switch(servo) {
-    case 1: servo1.write(angle);  break;
+    case 1: servo1.write(angle); break;
     case 2: servo2.write(angle); break;
     case 3: servo3.write(angle); break;
     case 4: servo4.write(angle); break;
@@ -1127,6 +1127,7 @@ void updateLED() {
   // Fault State (either OT or OC fault present) -- RED
   if(isFault()) { 
     digitalWrite(LED_R, LOW); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
+    Serial.println("fault");
   }
   // Doing nothing (no motors being driven) -- BLUE
   else if((motor1_pwm == 0) && (motor2_pwm == 0) && (motor3_pwm == 0) && (motor4_pwm == 0)) {
@@ -1207,7 +1208,7 @@ void parsePacket() {
           Serial.println("Rotating at PWM");
           break; }
       case FID_ROTSPD: {
-          setMotorDirection(cid, params[2]);
+          setMotorDirection(cid, (boolean)params[2]);
           uint16_t rpm = getShort(params[0], params[1]);
           float rotsRPM = getFloat(params[3], params[4], params[5], params[6]);
           rotateMotorForRotations(cid, rotsRPM, rpm, true);
@@ -1330,8 +1331,7 @@ void readPackets() {
       params[i] = rxbuff[buffr];
       advanceInBuffer();
     }
-
-    printPacket();
+    
     parsePacket();
 
     // Header can never be 0, so if next index is 0, there's no new packet.
