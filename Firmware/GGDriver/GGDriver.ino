@@ -1202,6 +1202,7 @@ void parsePacket() {
           Serial.println("Returning encoder ticks");
           break; }
       case FID_ROTPWM: {
+          enablePID(cid, false);
           setMotorDirection(cid, params[1]);
           float rotsPWM = getFloat(params[2], params[3], params[4], params[5]);
           rotateMotorForRotations(cid, rotsPWM, params[0], false);
