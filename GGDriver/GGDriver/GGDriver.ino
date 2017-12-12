@@ -251,10 +251,16 @@ uint16_t timeStep = 20;
 // PID VARIABLES FOR EACH MOTOR
 // Whether to use PID. If true, enables setting RPM via PID.
 // If false, motors are driven just by PWM. 
-boolean m1_usePID = true;
+boolean m1_usePID = false;
 boolean m2_usePID = false;
 boolean m3_usePID = false;
 boolean m4_usePID = false;
+
+// Keeps track of whether PID /was/ on, for coast. 
+boolean m1_wasPID = false;
+boolean m2_wasPID = false;
+boolean m3_wasPID = false;
+boolean m4_wasPID = false;
 
 // Desired RPM to reach, under PID conditions.
 double m1_targetRPM = 0.0;
@@ -507,10 +513,10 @@ uint8_t getMotorFault(uint8_t motor) {
 // pwm -- an int, 0 - 2^PWM_RES, designating duty cycle
 void setMotorPWM(uint8_t motor, uint16_t pwm) {
   switch(motor) {
-    case 1: setMotorDirection(MOTOR1, motor1_cw); motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
-    case 2: setMotorDirection(MOTOR2, motor2_cw); motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
-    case 3: setMotorDirection(MOTOR3, motor3_cw); motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
-    case 4: setMotorDirection(MOTOR4, motor4_cw); motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
+    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
+    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
+    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
+    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
   }
 }
 
@@ -626,10 +632,10 @@ double getMotorCurrent(uint8_t motor) {
 // enPID -- a boolean, true to enable PID, false to disable
 void enablePID(uint8_t motor, boolean enPID) {
   switch(motor) {
-    case 1: m1_usePID = enPID; break;
-    case 2: m2_usePID = enPID; break;
-    case 3: m3_usePID = enPID; break;
-    case 4: m4_usePID = enPID; break;
+    case 1: m1_usePID = enPID; m1_wasPID = enPID;  break;
+    case 2: m2_usePID = enPID; m2_wasPID = enPID;  break;
+    case 3: m3_usePID = enPID; m3_wasPID = enPID; break;
+    case 4: m4_usePID = enPID; m4_wasPID = enPID; break;
   }
 }
 
@@ -729,15 +735,23 @@ void releaseMotor(uint8_t motor) {
   switch(motor) {
     case 1: mcp.digitalWrite(IN1_A, LOW);
             mcp.digitalWrite(IN1_B, LOW);
+            setMotorPWM(MOTOR1, 0);
+            m1_targetRPM = 0;
             break;
     case 2: mcp.digitalWrite(IN2_A, LOW);
             mcp.digitalWrite(IN2_B, LOW);
+            setMotorPWM(MOTOR2, 0);
+            m2_targetRPM = 0;
             break;
     case 3: mcp.digitalWrite(IN3_A, LOW);
             mcp.digitalWrite(IN3_B, LOW);
+            setMotorPWM(MOTOR3, 0);
+            m3_targetRPM = 0;
             break;
     case 4: mcp.digitalWrite(IN4_A, LOW);
             mcp.digitalWrite(IN4_B, LOW);
+            setMotorPWM(MOTOR4, 0);
+            m4_targetRPM = 0;
             break;
   }
 }
@@ -748,6 +762,15 @@ void releaseMotor(uint8_t motor) {
 // Each interrupt, subtracts 1 from the PWM DC until it reqaches zero, then ends the interrupt routine.
 // motor -- an int, 1-4, designating which motor to control
 void coastMotor(uint8_t motor) {
+  // Disable PID first, if enabled, record history of PID, set target to 0.
+  switch(motor) {
+    case 1: if(m1_usePID) { m1_wasPID = m1_usePID; m1_usePID = false; m1_targetRPM = 0; }
+    case 2: if(m2_usePID) { m2_wasPID = m2_usePID; m2_usePID = false; m2_targetRPM = 0; }
+    case 3: if(m3_usePID) { m3_wasPID = m3_usePID; m3_usePID = false; m3_targetRPM = 0; }
+    case 4: if(m4_usePID) { m4_wasPID = m4_usePID; m4_usePID = false; m4_targetRPM = 0; }
+  }
+
+  // Prepare & trigger interrupts at proper timings to coast in coastSpd time
   switch(motor) {
     case 1: m1_timer.begin(coastMotor1,round((((float)motor1_coastSpd) * 1000) / motor1_pwm)); break;
     case 2: m2_timer.begin(coastMotor2,round((((float)motor2_coastSpd) * 1000) / motor2_pwm)); break;
@@ -803,22 +826,22 @@ long absoluteDifference(long val1, long val2) {
 // Each call, the PWM gets subtracted by 1 until the PWM is 0, then the interrupt is cancelled.
 void coastMotor1() {
   setMotorPWM(MOTOR1, motor1_pwm - 1);
-  if(motor1_pwm == 0) m1_timer.end();
+  if(motor1_pwm == 0) { m1_timer.end(); m1_usePID = m1_wasPID; }
 }
 
 void coastMotor2() {
   setMotorPWM(MOTOR2, motor2_pwm - 1);
-  if(motor2_pwm == 0) m2_timer.end();
+  if(motor2_pwm == 0) { m2_timer.end(); m2_usePID = m2_wasPID; }
 }
 
 void coastMotor3() {
   setMotorPWM(MOTOR3, motor3_pwm - 1);
-  if(motor3_pwm == 0) m3_timer.end();
+  if(motor3_pwm == 0) { m3_timer.end(); m3_usePID = m3_wasPID; }
 }
 
 void coastMotor4() {
   setMotorPWM(MOTOR4, motor4_pwm - 1);
-  if(motor4_pwm == 0) m4_timer.end();
+  if(motor4_pwm == 0) { m3_timer.end(); m3_usePID = m3_wasPID; }
 }
 
 // ======================== INTERRUPTS FOR OVERCURRENT  ======================== 
@@ -849,7 +872,6 @@ void m4_overcurrent() {
 // The fault is then cleared by the clearFault() function
 void m1_fault() {
   fault1 = false;
-  motor1_pwm = 0;
   clearFault(MOTOR1);
   setMotorPWM(MOTOR1, 0);
   setMotorDirection(MOTOR1, motor1_cw); 
@@ -857,7 +879,6 @@ void m1_fault() {
 
 void m2_fault() {
   fault2 = false;
-  motor2_pwm = 0;
   clearFault(MOTOR2);
   setMotorPWM(MOTOR2, 0);
   setMotorDirection(MOTOR2, motor2_cw); 
@@ -865,7 +886,6 @@ void m2_fault() {
 
 void m3_fault() {
   fault3 = false;
-  motor3_pwm = 0;
   clearFault(MOTOR3);
   setMotorPWM(MOTOR3, 0);
   setMotorDirection(MOTOR3, motor3_cw); 
@@ -873,7 +893,6 @@ void m3_fault() {
 
 void m4_fault() {
   fault4 = false;
-  motor4_pwm = 0;
   clearFault(MOTOR4);
   setMotorPWM(MOTOR4, 0);
   setMotorDirection(MOTOR4, motor4_cw); 
@@ -984,7 +1003,7 @@ void runMotor1ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(isRPM) m1_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR1, rpmOrPwm);
   while(curTicks < targetTicks) {
-    if(isRPM) runPID();
+    if(isRPM) { updateRPMs(); runPID(); }
     curTicks = getEncoderTicks(MOTOR1);
   }
   brakeMotor(MOTOR1);
@@ -997,7 +1016,7 @@ void runMotor2ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(isRPM) m2_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR2, rpmOrPwm);
   while(curTicks < targetTicks) {
-    if(isRPM) runPID();
+    if(isRPM) { updateRPMs(); runPID(); }
     curTicks = getEncoderTicks(MOTOR2);
   }
   brakeMotor(MOTOR2);
@@ -1010,7 +1029,7 @@ void runMotor3ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(isRPM) m3_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR3, rpmOrPwm);
   while(curTicks < targetTicks) {
-    if(isRPM) runPID();
+    if(isRPM) { updateRPMs(); runPID(); }
     curTicks = getEncoderTicks(MOTOR3);
   }
   brakeMotor(MOTOR3);
@@ -1023,12 +1042,11 @@ void runMotor4ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(isRPM) m4_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR4, rpmOrPwm);
   while(curTicks < targetTicks) {
-    if(isRPM) runPID();
+    if(isRPM) { updateRPMs(); runPID(); }
     curTicks = getEncoderTicks(MOTOR4);
   }
   brakeMotor(MOTOR4);
 }
-
 
 // Runs PID for all motors for which PID is enabled
 // Runs every so often depending on the configured PID period.
@@ -1044,10 +1062,10 @@ void runPID() {
 // Set PID settings for a motor and enable PID
 void setPID(uint8_t motor, double Kp, double Kd, double Ki) {
   switch(motor) {
-    case 1: m1_Kp = Kp; m1_Kd = Kd; m1_Ki = Ki; m1_usePID = true; break;
-    case 2: m2_Kp = Kp; m2_Kd = Kd; m2_Ki = Ki; m2_usePID = true; break;
-    case 3: m3_Kp = Kp; m3_Kd = Kd; m3_Ki = Ki; m3_usePID = true; break;
-    case 4: m4_Kp = Kp; m4_Kd = Kd; m4_Ki = Ki; m4_usePID = true; break;
+    case 1: m1_Kp = Kp; m1_Kd = Kd; m1_Ki = Ki; m1_usePID = true; m1_wasPID = true; break;
+    case 2: m2_Kp = Kp; m2_Kd = Kd; m2_Ki = Ki; m2_usePID = true; m2_wasPID = true;  break;
+    case 3: m3_Kp = Kp; m3_Kd = Kd; m3_Ki = Ki; m3_usePID = true; m3_wasPID = true;  break;
+    case 4: m4_Kp = Kp; m4_Kd = Kd; m4_Ki = Ki; m4_usePID = true; m4_wasPID = true;  break;
   }
 }
 
@@ -1126,7 +1144,7 @@ void updateBatteryVoltage() {
 void updateLED() {
   // Fault State (either OT or OC fault present) -- RED
   if(isFault()) { 
-    //digitalWrite(LED_R, LOW); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
+    digitalWrite(LED_R, LOW); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
   }
   // Doing nothing (no motors being driven) -- BLUE
   else if((motor1_pwm == 0) && (motor2_pwm == 0) && (motor3_pwm == 0) && (motor4_pwm == 0)) {
