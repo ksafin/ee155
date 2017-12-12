@@ -23,7 +23,7 @@ class Servo:
         newangle = int(round(angle * (180/self.angle)))
 
         # Assemble packet and write to SPI, return true for success
-        packet = pu.getPacket(0x11, self.id, su.ShortToBytes(newangle))
+        packet = pu.getPacket(0x11, self.id, list([newangle]))
         self.spi.writeBytes(packet)
         return True
 

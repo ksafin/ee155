@@ -949,24 +949,6 @@ void setServoAngle(uint8_t servo, uint16_t angle) {
   }
 }
 
-// Determines the "angle" to set a servo to, depending on the kind of servo it is.
-// The servo class is built for 180 degree servos, so this function scales the
-// value given to a servo object from 180 to 90, 270, and 360.
-/*uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
-  if(maxAngle == 90) {
-    return round(desAngle * 2);
-  }
-  if((maxAngle == 180) || (maxAngle == 0)) {
-    return desAngle;
-  }
-  if(maxAngle == 270) {
-    return round((desAngle * 2) / 3.0);
-  }
-  if(maxAngle == 360) {
-    return round(desAngle / 2.0);
-  }
-}*/
-
 // ======================== ROTATE FOR LINEAR DISTANCE  ======================== 
 // This function rotates for a given linear distance given a wheel circumfrence, at a given PWM
 // motor -- an int, 1-4, designating which servo to control
@@ -1278,17 +1260,17 @@ void parsePacket() {
 }
 
 boolean isMotorPacket() {
-  if ((fid <= 0x10) || (fid = 0x1D)) return true;
+  if ((fid <= 0x10) || (fid == 0x1D)) { return true; }
   return false;
 }
 
 boolean isServoPacket() {
-  if ((fid <= 0x11) || (fid = 0x12)) return true;
+  if ((fid == 0x11) || (fid == 0x12)) { return true; }
   return false;
 }
 
 boolean isStepperPacket() {
-  if ((fid >= 0x14) || (fid <= 0x1B)) return true;
+  if ((fid >= 0x14) || (fid <= 0x1B)) { return true; }
   return false;
 }
 
@@ -1349,6 +1331,7 @@ void readPackets() {
       advanceInBuffer();
     }
 
+    printPacket();
     parsePacket();
 
     // Header can never be 0, so if next index is 0, there's no new packet.
