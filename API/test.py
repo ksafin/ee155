@@ -7,8 +7,6 @@ print worked
 
 motor1 = test.getmotor(1)
 
-motor1.setPWM(0);
+motor1.setPPR(420.0)
+motor1.rotatePWM(200,10)
 
-while True:
-    print motor1.getEncoder()
-    time.sleep(0.001)
