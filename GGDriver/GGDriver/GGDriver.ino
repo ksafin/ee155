@@ -82,6 +82,7 @@ INTUNION iu;
 #define FID_STEPREL   0x1C  // Release Stepper
 #define FID_SETPPR    0x1D  // Set PPR for motor
 
+
 // ======================== LED DEFINITION  ======================== 
 // Pins for RGB LED cathodes -- drive LOW to enable particular color
 #define LED_R 2
@@ -201,10 +202,10 @@ double motor4_ilim = 30;
 
 // RPM STATES
 // Most recently calculated RPMs for each motor.
-volatile uint16_t motor1_rpm = 0;
-volatile uint16_t motor2_rpm = 0;
-volatile uint16_t motor3_rpm = 0;
-volatile uint16_t motor4_rpm = 0;
+volatile double motor1_rpm = 0;
+volatile double motor2_rpm = 0;
+volatile double motor3_rpm = 0;
+volatile double motor4_rpm = 0;
 
 // COAST SPEEDS (ms to OFF)
 // Coast speed for each motor
@@ -219,6 +220,7 @@ uint16_t motor4_coastSpd = 500;
 // This is used to determine RPM, and is specific for every motor.
 // Default is 134.4, which is the ppr for an Andymark Neverest 19.2:1
 float m1_ppr = 420.0;
+
 float m2_ppr = 134.4;
 float m3_ppr = 134.4;
 float m4_ppr = 420.0;//134.4;
@@ -583,7 +585,7 @@ boolean getMotorDirection(uint8_t motor) {
 // Gets the current motor speed, in rpm.
 // motor -- an int, 1-4, designating which motor to check
 // Returned value is rpm
-uint16_t getMotorRPM(uint8_t motor) {
+double getMotorRPM(uint8_t motor) {
   switch(motor) {
     case 1: return motor1_rpm;
     case 2: return motor2_rpm;
@@ -943,6 +945,17 @@ void setServoAngle(uint8_t servo, uint16_t angle) {
   }
 }*/
 
+// ======================== ROTATE FOR LINEAR DISTANCE  ======================== 
+// This function rotates for a given linear distance given a wheel circumfrence, at a given PWM
+// motor -- an int, 1-4, designating which servo to control
+/*void rotateMotorForDistance(uint8_t motor, double cirum, uint8_t distance, uint8_t setPWM) {
+  switch(motor) {
+    case 1: runMotor1ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 2: runMotor2ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 3: runMotor3ForRotations(rots, rpmOrPwm, isRPM); break;
+    case 4: runMotor4ForRotations(rots, rpmOrPwm, isRPM); break;
+  }
+}*/
 
 // ======================== ROTATE AT GIVEN SPEED  ======================== 
 // This function rotates for a given number of rotations at a given speed
@@ -970,6 +983,7 @@ void runMotor1ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(isRPM) m1_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR1, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR1);
   }
   if(isRPM) { brakeMotor(MOTOR1); m1_targetRPM = 0; }
@@ -981,12 +995,14 @@ void runMotor2ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR2);
   long targetTicks = (long)(curTicks + (rots * m2_ppr));
   if(isRPM) m2_targetRPM = rpmOrPwm;
-  if(!isRPM) motor2_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR2, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR2);
   }
   if(isRPM) m2_targetRPM = 0;
-  if(!isRPM) motor2_pwm = 0;
+  releaseMotor(MOTOR2);
+  if(!isRPM) setMotorPWM(MOTOR2, 0);
 }
 
 void runMotor3ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
@@ -994,12 +1010,14 @@ void runMotor3ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR3);
   long targetTicks = (long)(curTicks + (rots * m3_ppr));
   if(isRPM) m3_targetRPM = rpmOrPwm;
-  if(!isRPM) motor3_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR3, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR3);
   }
   if(isRPM) m3_targetRPM = 0;
-  if(!isRPM) motor3_pwm = 0;
+  releaseMotor(MOTOR3);
+  if(!isRPM) setMotorPWM(MOTOR3, 0);
 }
 
 void runMotor4ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
@@ -1007,12 +1025,14 @@ void runMotor4ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   long curTicks = getEncoderTicks(MOTOR4);
   long targetTicks = (long)(curTicks + (rots * m4_ppr));
   if(isRPM) m4_targetRPM = rpmOrPwm;
-  if(!isRPM) motor4_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR4, rpmOrPwm);
   while(curTicks < targetTicks) {
+    if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR4);
   }
   if(isRPM) m4_targetRPM = 0;
-  if(!isRPM) motor4_pwm = 0;
+  releaseMotor(MOTOR4);
+  if(!isRPM) setMotorPWM(MOTOR4, 0);
 }
 
 
@@ -1370,7 +1390,6 @@ void printBuffer(int numElems) {
 
 // ======================== PRIMARY LOOP  ======================== 
 
-Metro testTimer = Metro(2000);
 void loop() {
   readCurrents();
   readFaultStates();
