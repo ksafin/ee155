@@ -20,7 +20,7 @@ class Servo:
             return False
 
         # Convert to proper angle range (0 to 180)
-        newangle = int(round(angle * (180/self.angle)))
+        newangle = int(round(angle * (180.0/float(self.angle))))
 
         # Assemble packet and write to SPI, return true for success
         packet = pu.getPacket(0x11, self.id, list([newangle]))
