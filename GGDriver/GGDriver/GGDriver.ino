@@ -11,22 +11,50 @@
 #define RTS 28
 #define SPI_RESET 29
 
-volatile boolean serialAvailable = false;
-
 // BIT MASKS
 // Masks for extracting relevant data
-#define componentId_mask 00000011
-#define functionId_mask 11111100
-#define parameterQty_mask 00000011
+#define componentId_mask 0b00000011
+#define functionId_mask 0b11111100
+#define parameterQty_mask 0b00000011
 
-// ACKNOWLEDGE RESPONSE
-#define ACK 0xAA
+// BUFFER
+uint8_t rxbuff[1000];
+uint8_t nparams;
+byte header;
+uint8_t buffw = 0;
+uint8_t buffr = 0;
+boolean hasPacket = false;
+uint8_t fid;
+uint8_t cid;
+uint8_t params[30];
+
+typedef union
+{
+ float val;
+ uint8_t bytes[4];
+} FLOATUNION;
+
+typedef union
+{
+ short val;
+ uint8_t bytes[2];
+} SHORTUNION;
+
+typedef union
+{
+ uint32_t val;
+ uint8_t bytes[4];
+} INTUNION;
+
+FLOATUNION fu;
+SHORTUNION su;
+INTUNION iu;
 
 // FUNCTION ID DEFINITIONS
 #define FID_SETPWM    0x00  // Set Motor PWM
 #define FID_SETILIM   0x01  // Set Motor Current Limit
 #define FID_GETSPD    0x02  // Get Motor Speed (RPM)
-#define FID_GETDIR    0x03  // Get Motor Direction
+#define FID_PIDEN     0x03  // Enable PID 
 #define FID_GETCUR    0x04  // Get Motor Current
 #define FID_SETPID    0x05  // Set PID Constants
 #define FID_SETSPD    0x06  // Set Motor Speed (RPM)
@@ -41,7 +69,7 @@ volatile boolean serialAvailable = false;
 #define FID_REL       0x0F  // Release Motor
 #define FID_FAULT     0x10  // Get Motor Fault
 #define FID_SETANG    0x11  // Set Servo Angle
-#define FID_SETSPD    0x12  // Set Continuous Servo Speed
+#define FID_SETSSP    0x12  // Set Continuous Servo Speed
 #define FID_TCURR     0x13  // Get Total Current
 #define FID_STEPILIM  0x14  // Set Stepper Current Limit
 #define FID_STEPCUR   0x15  // Get Stepper Current
@@ -52,6 +80,7 @@ volatile boolean serialAvailable = false;
 #define FID_STEPSPD   0x1A  // Set Stepper Speed, in RPM
 #define FID_ONESTP    0x1B  // Advance One Step
 #define FID_STEPREL   0x1C  // Release Stepper
+#define FID_SETPPR    0x1D  // Set PPR for motor
 
 // ======================== LED DEFINITION  ======================== 
 // Pins for RGB LED cathodes -- drive LOW to enable particular color
@@ -189,7 +218,7 @@ uint16_t motor4_coastSpd = 500;
 // Number of encoder pulses per revolution of the motor shaft.
 // This is used to determine RPM, and is specific for every motor.
 // Default is 134.4, which is the ppr for an Andymark Neverest 19.2:1
-float m1_ppr = 134.4;
+float m1_ppr = 420.0;
 float m2_ppr = 134.4;
 float m3_ppr = 134.4;
 float m4_ppr = 420.0;//134.4;
@@ -227,31 +256,31 @@ boolean m3_usePID = false;
 boolean m4_usePID = false;
 
 // Desired RPM to reach, under PID conditions.
-uint16_t m1_targetRPM = 0.0;
-uint16_t m2_targetRPM = 0.0;
-uint16_t m3_targetRPM = 0.0;
-uint16_t m4_targetRPM = 0.0;
+double m1_targetRPM = 80.0;
+double m2_targetRPM = 0.0;
+double m3_targetRPM = 0.0;
+double m4_targetRPM = 0.0;
 
 // Current PID error. (distance from desired RPM, at current RPM)
-uint16_t m1_err = 0.0;
-uint16_t m2_err = 0.0;
-uint16_t m3_err = 0.0;
-uint16_t m4_err = 0.0;
+double m1_err = 0.0;
+double m2_err = 0.0;
+double m3_err = 0.0;
+double m4_err = 0.0;
 
 // Proportionality constants for each motors PID
-double m1_Kp = 0.0;
+double m1_Kp = 0.8;
 double m2_Kp = 0.0;
 double m3_Kp = 0.0;
 double m4_Kp = 0.0;
 
 // Derivative constants for each motors PID
-double m1_Kd = 0.0;
+double m1_Kd = 0.2;
 double m2_Kd = 0.0;
 double m3_Kd = 0.0;
 double m4_Kd = 0.0;
 
 // Integral constants for each motors PID
-double m1_Ki = 0.0;
+double m1_Ki = 0.05;
 double m2_Ki = 0.0;
 double m3_Ki = 0.0;
 double m4_Ki = 0.0;
@@ -274,6 +303,12 @@ double m2_errLast = 0.0;
 double m3_errLast = 0.0;
 double m4_errLast = 0.0;
 
+// Ideal double-based PWM values for calculations
+double m1_optPWM = 0.0;
+double m2_optPWM = 0.0;
+double m3_optPWM = 0.0;
+double m4_optPWM = 0.0;
+
 
 // MOTOR PINOUT EXPLANATION
 // EN_A/DIAG_A -- OUTPUT PIN. WHEN LOW, DISABLES HALF-BRIDGE A. Pulled LOW by fault.
@@ -287,15 +322,6 @@ double m4_errLast = 0.0;
 // IN_A == 0, IN_B == 0 -> HIGH IMPEDANCE (BREAK TO GND)
 
 // ======================== SERVO STATE VARIABLES  ========================
-
-// SERVO DEFINITION STATES
-// REPRESENTS ANGLE OF SERVO, IN DEGREES
-// CONTINUOUS ROTATION SERVO HAS AN ANGLE OF 0
-uint16_t servo1_angle = 180;
-uint16_t servo2_angle = 180;
-uint16_t servo3_angle = 180;
-uint16_t servo4_angle = 180;
-
 // Servo objects
 Servo servo1;
 Servo servo2;
@@ -423,9 +449,7 @@ void setup() {
   digitalWrite(LS_ENABLE, HIGH); // enable logic shifter
 
   // SPI BRIDGE
-  pinMode(SPI_RESET, OUTPUT);
-  pinMode(IRQ, INPUT);
-  attachInterrupt(IRQ, serialInterrupt, FALLING); 
+  MASTER_SERIAL.begin(38400);
 
   // AUX
   pinMode(BATT_SENSE, INPUT);
@@ -436,10 +460,10 @@ void setup() {
   m3_past_ticks = enc3.read();
   m4_past_ticks = enc4.read();
 
-  Serial.begin(115200);
+  setMotorDirection(MOTOR1, true);
+  rotateMotorForRotations(MOTOR1, 10, 200, false);
 
-  setMotorDirection(MOTOR2,true);
-  setMotorPWM(MOTOR2,255);
+  Serial.begin(115200);
 }
 
 // ======================== READ CURRENTS ======================== 
@@ -482,10 +506,10 @@ uint8_t getMotorFault(uint8_t motor) {
 // pwm -- an int, 0 - 2^PWM_RES, designating duty cycle
 void setMotorPWM(uint8_t motor, uint16_t pwm) {
   switch(motor) {
-    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); m1_usePID = false; break;
-    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); m2_usePID = false; break;
-    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); m3_usePID = false; break;
-    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); m4_usePID = false; break;
+    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
+    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
+    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
+    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
   }
 }
 
@@ -569,6 +593,19 @@ uint16_t getMotorRPM(uint8_t motor) {
   }
 }
 
+// ======================== SET MOTOR PPR ======================== 
+// Sets the ppr of a motor.
+// motor -- an int, 1-4, designating which motor to check
+// ppr -- a double, designating ppr. Must be positive.
+void setMotorPPR(uint8_t motor, double ppr) {
+  switch(motor) {
+    case 1: m1_ppr = ppr; break;
+    case 2: m2_ppr = ppr; break;
+    case 3: m3_ppr = ppr; break;
+    case 4: m4_ppr = ppr; break;
+  }
+}
+
 // ======================== GET MOTOR CURRENT DRAW  ======================== 
 // Returns current draw for a particular motor
 // motor -- an int, 1-4, designating which motor to check
@@ -580,6 +617,18 @@ double getMotorCurrent(uint8_t motor) {
     case 3: return motor3_curr;
     case 4: return motor4_curr;
     default: return 0;
+  }
+}
+
+// ======================== ENABLE OR DISABLE PID  ======================== 
+// Enables or disables PID for a given motor
+// enPID -- a boolean, true to enable PID, false to disable
+void enablePID(uint8_t motor, boolean enPID) {
+  switch(motor) {
+    case 1: m1_usePID = enPID; break;
+    case 2: m2_usePID = enPID; break;
+    case 3: m3_usePID = enPID; break;
+    case 4: m4_usePID = enPID; break;
   }
 }
 
@@ -629,23 +678,21 @@ void useBrakeMotor(uint8_t motor, boolean isBrake) {
 // Sets both IN pins to high to set motors to VCC - VCC
 void brakeMotor(uint8_t motor) {
   switch(motor) {
-    case 1: setMotorPWM(MOTOR1, 0);
-            mcp.digitalWrite(IN1_A, HIGH);
+    case 1: mcp.digitalWrite(IN1_A, HIGH);
             mcp.digitalWrite(IN1_B, HIGH);
+            setMotorPWM(MOTOR1, 0);
             break;
-    case 2: setMotorPWM(MOTOR2, 0);
-            mcp.digitalWrite(IN2_A, HIGH);
+    case 2: mcp.digitalWrite(IN2_A, HIGH);
             mcp.digitalWrite(IN2_B, HIGH);
+            setMotorPWM(MOTOR2, 0);
             break;
-    case 3: setMotorPWM(MOTOR3, 0);
-            mcp.digitalWrite(IN3_A, HIGH);
+    case 3: mcp.digitalWrite(IN3_A, HIGH);
             mcp.digitalWrite(IN3_B, HIGH);
+            setMotorPWM(MOTOR3, 0);
             break;
-    case 4: setMotorPWM(MOTOR4, 0);
-            setMotorDirection(MOTOR4,true);
-            mcp.digitalWrite(IN4_A, HIGH);
-            mcp.digitalWrite(IN4_B, LOW);
-            Serial.println("braking motor");
+    case 4: mcp.digitalWrite(IN4_A, HIGH);
+            mcp.digitalWrite(IN4_B, HIGH);
+            setMotorPWM(MOTOR4, 0);
             break;
   }
 }
@@ -710,13 +757,13 @@ void coastMotor(uint8_t motor) {
 void stopMotor(uint8_t motor) {
    switch(motor) {
     case 1: if(motor1_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 2: if(motor2_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 3: if(motor3_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
     case 4: if(motor4_brake) { brakeMotor(motor); }
-            else { coastMotor(motor); }
+            else { coastMotor(motor); } break;
   }
 }
 
@@ -871,17 +918,17 @@ void fixFaults() {
 // servo -- an int, 1-4, designating which servo to control
 void setServoAngle(uint8_t servo, uint16_t angle) {
   switch(servo) {
-    case 1: servo1.write(getAngleValue(angle, servo1_angle));  break;
-    case 2: servo2.write(getAngleValue(angle, servo2_angle)); break;
-    case 3: servo3.write(getAngleValue(angle, servo3_angle)); break;
-    case 4: servo4.write(getAngleValue(angle, servo4_angle)); break;
+    case 1: servo1.write(angle);  break;
+    case 2: servo2.write(angle); break;
+    case 3: servo3.write(angle); break;
+    case 4: servo4.write(angle); break;
   }
 }
 
 // Determines the "angle" to set a servo to, depending on the kind of servo it is.
 // The servo class is built for 180 degree servos, so this function scales the
 // value given to a servo object from 180 to 90, 270, and 360.
-uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
+/*uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
   if(maxAngle == 90) {
     return round(desAngle * 2);
   }
@@ -894,13 +941,13 @@ uint8_t getAngleValue(uint16_t desAngle, uint16_t maxAngle) {
   if(maxAngle == 360) {
     return round(desAngle / 2.0);
   }
-}
+}*/
 
 
 // ======================== ROTATE AT GIVEN SPEED  ======================== 
 // This function rotates for a given number of rotations at a given speed
 // servo -- an int, 1-4, designating which servo to control
-void rotateMotorForRotations(uint8_t motor, uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+void rotateMotorForRotations(uint8_t motor, double rots, uint16_t rpmOrPwm, boolean isRPM) {
   switch(motor) {
     case 1: runMotor1ForRotations(rots, rpmOrPwm, isRPM); break;
     case 2: runMotor2ForRotations(rots, rpmOrPwm, isRPM); break;
@@ -914,23 +961,25 @@ void rotateMotorForRotations(uint8_t motor, uint16_t rots, uint16_t rpmOrPwm, bo
 // rots -- integer indicating number of rotations
 // rpmOrPwm -- value holding either PWM duty cycle or RPM
 // isRPM -- if true, value is RPM. if false, it's PWM.
-void runMotor1ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+void runMotor1ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m1_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR1);
-  long targetTicks = curTicks + (rots * m1_ppr);
+  Serial.println(curTicks);
+  long targetTicks = (long)(curTicks + (rots * m1_ppr * 4));
+  Serial.println(targetTicks);
   if(isRPM) m1_targetRPM = rpmOrPwm;
-  if(!isRPM) motor1_pwm = rpmOrPwm;
+  if(!isRPM) setMotorPWM(MOTOR1, rpmOrPwm);
   while(curTicks < targetTicks) {
     curTicks = getEncoderTicks(MOTOR1);
   }
-  if(isRPM) m1_targetRPM = 0;
-  if(!isRPM) motor1_pwm = 0;
+  if(isRPM) { brakeMotor(MOTOR1); m1_targetRPM = 0; }
+  if(!isRPM) { brakeMotor(MOTOR1); setMotorPWM(MOTOR1, 0); }
 }
 
-void runMotor2ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+void runMotor2ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m2_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR2);
-  long targetTicks = curTicks + (rots * m2_ppr);
+  long targetTicks = (long)(curTicks + (rots * m2_ppr));
   if(isRPM) m2_targetRPM = rpmOrPwm;
   if(!isRPM) motor2_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
@@ -940,10 +989,10 @@ void runMotor2ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(!isRPM) motor2_pwm = 0;
 }
 
-void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+void runMotor3ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m3_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR3);
-  long targetTicks = curTicks + (rots * m3_ppr);
+  long targetTicks = (long)(curTicks + (rots * m3_ppr));
   if(isRPM) m3_targetRPM = rpmOrPwm;
   if(!isRPM) motor3_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
@@ -953,10 +1002,10 @@ void runMotor3ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
   if(!isRPM) motor3_pwm = 0;
 }
 
-void runMotor4ForRotations(uint16_t rots, uint16_t rpmOrPwm, boolean isRPM) {
+void runMotor4ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m4_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR4);
-  long targetTicks = curTicks + (rots * m4_ppr);
+  long targetTicks = (long)(curTicks + (rots * m4_ppr));
   if(isRPM) m4_targetRPM = rpmOrPwm;
   if(!isRPM) motor4_pwm = rpmOrPwm;
   while(curTicks < targetTicks) {
@@ -992,58 +1041,58 @@ void setPID(uint8_t motor, double Kp, double Kd, double Ki) {
 void setMotorSpeed(uint8_t motor, double targetRPM) {
   switch(motor) {
     case 1: m1_targetRPM = targetRPM; break;
-    case 2: m2_targetRPM = targetRPM; break; break;
-    case 3: m3_targetRPM = targetRPM; break; break;
-    case 4: m4_targetRPM = targetRPM; break; break;
+    case 2: m2_targetRPM = targetRPM; break; 
+    case 3: m3_targetRPM = targetRPM; break; 
+    case 4: m4_targetRPM = targetRPM; break; 
   }
 }
 
 // Run PID algorithm for motor 1
 void runMotor1PID() {
   m1_err = m1_targetRPM - motor1_rpm;
-  motor1_pwm = round((m1_Kp * m1_err) + (m1_Ki * m1_integral) + (m1_Kd * m1_derivative));
-  if(motor1_pwm > pow(2,PWM_RES)) { motor1_pwm = pow(2,PWM_RES); }
-  else if (motor1_pwm < 0) { motor1_pwm = 0; }
-  else m1_integral = m1_integral + (m1_err * timeStep);
-  m1_derivative = (m1_err - m1_errLast) / timeStep;
+  m1_optPWM = round((m1_Kp * m1_err) + (m1_Ki * m1_integral) + (m1_Kd * m1_derivative));
+  if(m1_optPWM > pow(2,PWM_RES)) { m1_optPWM = pow(2,PWM_RES); }
+  else if (m1_optPWM < 0) { m1_optPWM = 0; }
+  else m1_integral = m1_integral + (m1_err * (float)timeStep);
+  m1_derivative = (m1_err - m1_errLast) / (float)timeStep;
   m1_errLast = m1_err;
-  setMotorPWM(MOTOR1, motor1_pwm);
+  setMotorPWM(MOTOR1, (uint8_t)m1_optPWM);
 }
 
 // Run PID algorithm for motor 2
 void runMotor2PID() {
   m2_err = m2_targetRPM - motor2_rpm;
-  motor2_pwm = round((m2_Kp * m2_err) + (m2_Ki * m2_integral) + (m2_Kd * m2_derivative));
-  if(motor2_pwm > pow(2,PWM_RES)) { motor2_pwm = pow(2,PWM_RES); }
-  else if (motor2_pwm < 0) { motor2_pwm = 0; }
-  else m2_integral = m2_integral + (m2_err * timeStep);
-  m2_derivative = (m2_err - m2_errLast) / timeStep;
+  m2_optPWM = round((m2_Kp * m2_err) + (m2_Ki * m2_integral) + (m2_Kd * m2_derivative));
+  if(m2_optPWM > pow(2,PWM_RES)) { m2_optPWM = pow(2,PWM_RES); }
+  else if (m2_optPWM < 0) { m2_optPWM = 0; }
+  else m2_integral = m2_integral + (m2_err * (float)timeStep);
+  m2_derivative = (m2_err - m2_errLast) / (float)timeStep;
   m2_errLast = m2_err;
-  setMotorPWM(MOTOR2, motor2_pwm);
+  setMotorPWM(MOTOR2, (uint8_t)m2_optPWM);
 }
 
 // Run PID algorithm for motor 3
 void runMotor3PID() {
   m3_err = m3_targetRPM - motor3_rpm;
-  motor3_pwm = round((m3_Kp * m3_err) + (m3_Ki * m3_integral) + (m3_Kd * m3_derivative));
-  if(motor3_pwm > pow(2,PWM_RES)) { motor3_pwm = pow(3,PWM_RES); }
-  else if (motor3_pwm < 0) { motor3_pwm = 0; }
-  else m3_integral = m3_integral + (m3_err * timeStep);
-  m3_derivative = (m3_err - m3_errLast) / timeStep;
+  m3_optPWM = round((m3_Kp * m3_err) + (m3_Ki * m3_integral) + (m3_Kd * m3_derivative));
+  if(m3_optPWM > pow(2,PWM_RES)) { m3_optPWM = pow(2,PWM_RES); }
+  else if (m3_optPWM < 0) { m3_optPWM = 0; }
+  else m3_integral = m3_integral + (m3_err * (float)timeStep);
+  m3_derivative = (m3_err - m3_errLast) / (float)timeStep;
   m3_errLast = m3_err;
-  setMotorPWM(MOTOR3, motor3_pwm);
+  setMotorPWM(MOTOR3, (uint8_t)m3_optPWM);
 }
 
 // Run PID algorithm for motor 4
 void runMotor4PID() {
   m4_err = m4_targetRPM - motor4_rpm;
-  motor4_pwm = round((m4_Kp * m4_err) + (m4_Ki * m4_integral) + (m4_Kd * m4_derivative));
-  if(motor4_pwm > pow(2,PWM_RES)) { motor4_pwm = pow(2,PWM_RES); }
-  else if (motor4_pwm < 0) { motor4_pwm = 0; }
-  else m4_integral = m4_integral + (m4_err * timeStep);
-  m4_derivative = (m4_err - m4_errLast) / timeStep;
+  m4_optPWM = round((m4_Kp * m4_err) + (m4_Ki * m4_integral) + (m4_Kd * m4_derivative));
+  if(m4_optPWM > pow(2,PWM_RES)) { m4_optPWM = pow(2,PWM_RES); }
+  else if (m4_optPWM < 0) { m4_optPWM = 0; }
+  else m4_integral = m4_integral + (m4_err * (float)timeStep);
+  m4_derivative = (m4_err - m4_errLast) / (float)timeStep;
   m4_errLast = m4_err;
-  setMotorPWM(MOTOR4, motor4_pwm);
+  setMotorPWM(MOTOR4, (uint8_t)m4_optPWM);
 }
 
 // Checks if there's a fault, either overtemp, voltage, or overcurrent
@@ -1079,114 +1128,258 @@ void updateLED() {
   }
 }
 
-// Takes packetized data and calls the appropriate function with the relevant variables.
-// Parameters sent by master are global uint16_t's.
-void functionParser(uint8_t comp, uint8_t fid, uint8_t parameter1, uint8_t parameter2, uint8_t parameter3) {
-  // Variables to store response data, if any.
-  uint8_t type = 0;
-  long responseLong; // type 1
-  uint8_t responseByte; // type 2
-  uint16_t responseTwoByte; // type 3
-  double responseDouble; // type 4
-  boolean responseBool; // type 5
-  
-  // Motor Functions
-  // Determine what function to call by FID, then call it with the requisite parameters
-  // If a function returns a value, store in appropriate response variable for sending later
-  if(fid <= FID_FAULT)  {
+void parsePacket() {
+  if(isMotorPacket()) {
     switch(fid) {
-      case FID_SETPWM:    setMotorPWM(comp, parameter1);                                    break;
-      case FID_SETILIM:   setMotorCurrentLimit(comp, (parameter1 * (30.0/255.0)));          break;
-      case FID_GETSPD:    responseTwoByte = getMotorRPM(comp); type = 3;                    break;
-      case FID_GETDIR:    responseBool = getMotorDirection(comp); type = 5;                 break;
-      case FID_GETCUR:    responseDouble = getMotorCurrent(comp); type = 4;                 break;
-      case FID_SETPID:    setPID(comp, parameter1, parameter2, parameter3);                 break;
-      case FID_SETSPD:    setMotorSpeed(comp, parameter1);                                  break;
-      case FID_RESENC:    resetEncoder(comp);                                               break;
-      case FID_GETENC:    responseLong = getEncoderTicks(comp); type = 1;                   break;
-      case FID_ROTPWM:    rotateMotorForRotations(comp,parameter1,parameter2,false);        break;
-      case FID_ROTSPD:    rotateMotorForRotations(comp,parameter1,parameter2,true);         break;
-      case FID_COAST:     useBrakeMotor(comp, false);                                       break;
-      case FID_BRAKE:     useBrakeMotor(comp, true);                                        break;
-      case FID_CSPD:      setMotorCoastSpeed(comp, parameter1);                             break;
-      case FID_STOP:      stopMotor(comp);                                                  break;
-      case FID_REL:       releaseMotor(comp);                                               break;
-      case FID_FAULT:     responseByte = getMotorFault(comp); type = 2;                     break;
+      case FID_SETPWM: {
+          setMotorDirection(cid, (boolean)params[1]);
+          setMotorPWM(cid, params[0]);
+          Serial.print("Set Motor ");
+          Serial.print(cid);
+          Serial.print(" to PWM ");
+          Serial.print(params[0]);
+          Serial.print(" and direction ");
+          Serial.println(params[1]);
+          break; }
+      case FID_SETILIM: {
+          setMotorCurrentLimit(cid, ((double)(getShort(params[0], params[1])) / 1000.0));
+          Serial.print("Set Motor ");
+          Serial.print(cid);
+          Serial.print(" to current limit ");
+          Serial.println(((double)su.val) / 1000.0);
+          break; }
+      case FID_GETSPD: {
+          sendShort((uint16_t)getMotorRPM(cid));
+          Serial.println("Replying with motor speed");
+          break; }
+      case FID_PIDEN: {
+          enablePID(cid, params[0]);
+          Serial.print("Setting PID to ");
+          Serial.println(params[0]);
+          break; }
+      case FID_GETCUR: {
+          sendShort((uint16_t)(getMotorCurrent(cid) * 1000));
+          Serial.println("Replying with motor current");
+          break; }
+      case FID_SETPID: {
+          float Kp = getFloat(params[0], params[1], params[2], params[3]);
+          float Kd = getFloat(params[4], params[5], params[6], params[7]);
+          float Ki = getFloat(params[8], params[9], params[10], params[11]);
+          setPID(cid, Kp, Kd, Ki);
+          Serial.println("Setting PID constants");
+          break; }
+      case FID_SETSPD: {
+          setMotorSpeed(cid, getShort(params[0], params[1]));
+          Serial.print("Setting motor speed to ");
+          Serial.println(m1_targetRPM);
+          break; }
+      case FID_RESENC: {
+          resetEncoder(cid);
+          Serial.println("Resetting encoder");
+          break; }
+      case FID_GETENC: {
+          long ticks = getEncoderTicks(cid);
+          uint32_t tt = (uint32_t)abs(ticks);
+          sendInt(tt);
+          if(ticks < 0) { MASTER_SERIAL.write(1); } // neg
+          else { MASTER_SERIAL.write(0); } // pos
+          Serial.println("Returning encoder ticks");
+          break; }
+      case FID_ROTPWM: {
+          setMotorDirection(cid, params[1]);
+          float rotsPWM = getFloat(params[2], params[3], params[4], params[5]);
+          rotateMotorForRotations(cid, rotsPWM, params[0], false);
+          Serial.println("Rotating at PWM");
+          break; }
+      case FID_ROTSPD: {
+          setMotorDirection(cid, params[2]);
+          uint16_t rpm = getShort(params[0], params[1]);
+          float rotsRPM = getFloat(params[3], params[4], params[5], params[6]);
+          rotateMotorForRotations(cid, rotsRPM, rpm, true);
+          Serial.println("Rotating at RPM");
+          break; }
+      case FID_COAST: {
+          useBrakeMotor(cid, false);
+          Serial.println("Setting motor to Coast");
+          break; }
+      case FID_BRAKE: {
+          useBrakeMotor(cid, true);
+          Serial.println("Setting motor to Brake");
+          break; }
+      case FID_CSPD: {
+          setMotorCoastSpeed(cid,getShort(params[0], params[1]));
+          Serial.println("Setting coast speed to ");
+          Serial.println(motor1_coastSpd);
+          break; }
+      case FID_STOP: {
+          stopMotor(cid);
+          Serial.println("Stopping motor");
+          break; }
+      case FID_REL: {
+          releaseMotor(cid);
+          Serial.println("Releasing motor");
+          break; }
+      case FID_FAULT: {
+          MASTER_SERIAL.write(getMotorFault(cid));
+          Serial.println("Replying with motor fault");
+          break; }
+      case FID_SETPPR: {
+          setMotorPPR(cid, getFloat(params[0], params[1], params[2], params[3]));
+          Serial.println("Setting motor PPR");
+          break; }
     }
-    // Servo Functions
-  } else if (fid <= FID_SETSPD) {
+  } else if (isServoPacket()) {
     switch(fid) {
-      case FID_SETANG:    setServoAngle(comp, parameter1);                                  break;
-      case FID_SETSPD:    setServoAngle(comp, parameter1);                                  break;
+      case FID_SETANG:{
+          setServoAngle(cid, params[0]);
+          Serial.println("Setting servo angle");
+          break; }
+      case FID_SETSSP: {
+          setServoAngle(cid, params[0]);
+          Serial.println("Setting servo speed");
+          break; }
     }
-    // Total Current
-  } else if (fid == FID_TCURR) {
-      responseDouble = totalCurrent;
-    // Stepper Functions
-  } else if (fid <= FID_STEPREL) {
+  } else if (isStepperPacket()) {
     
   }
-
-  // Send Response, if any
-  // If no response needed, send ACKNOWLEDGE byte (0xAA)
-  switch(type) {
-    case 0: MASTER_SERIAL.print(ACK); break;
-    case 1: MASTER_SERIAL.print(responseLong); break;
-    case 2: MASTER_SERIAL.print(responseByte); break;
-    case 3: MASTER_SERIAL.print(responseTwoByte); break;
-    case 4: MASTER_SERIAL.print(responseDouble); break;
-    case 5: MASTER_SERIAL.print(responseBool); break;
-  }
-  
 }
 
-void serialInterrupt() {
-  serialAvailable = true;
+boolean isMotorPacket() {
+  if ((fid <= 0x10) || (fid = 0x1D)) return true;
+  return false;
 }
 
-void readPacket() {
-  uint8_t comp;
-  byte header;
-  uint8_t nParams;
-  uint8_t params[3];
-  uint8_t fid;
+boolean isServoPacket() {
+  if ((fid <= 0x11) || (fid = 0x12)) return true;
+  return false;
+}
 
-  // Get Component ID
-  if(MASTER_SERIAL.available()) comp = (uint8_t)(MASTER_SERIAL.read() & componentId_mask);
+boolean isStepperPacket() {
+  if ((fid >= 0x14) || (fid <= 0x1B)) return true;
+  return false;
+}
 
-  // Get Header
-  if(MASTER_SERIAL.available()) header = MASTER_SERIAL.read();
+void sendShort(uint16_t val) {
+  su.val = val;
+  MASTER_SERIAL.write(su.bytes[0]);
+  MASTER_SERIAL.write(su.bytes[1]);
+}
 
-  // Extract FID & nParams from header via bitmasks
-  fid = (uint8_t)(header & functionId_mask);
-  nParams = (uint8_t)(header & parameterQty_mask);
+void sendFloat(float val) {
+  fu.val = val;
+  MASTER_SERIAL.write(fu.bytes[0]);
+  MASTER_SERIAL.write(fu.bytes[1]);
+  MASTER_SERIAL.write(fu.bytes[2]);
+  MASTER_SERIAL.write(fu.bytes[3]);
+}
 
-  // Iterate over the transmitted parameters, store in array
-  for(int i = 0; i < nParams; i++) {
-    if(MASTER_SERIAL.available()) {
-      params[i] = (uint8_t)(MASTER_SERIAL.read());
+void sendInt(int val) {
+  iu.val = val;
+  MASTER_SERIAL.write(iu.bytes[0]);
+  MASTER_SERIAL.write(iu.bytes[1]);
+  MASTER_SERIAL.write(iu.bytes[2]);
+  MASTER_SERIAL.write(iu.bytes[3]);
+}
+
+float getFloat(uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4) {
+  fu.bytes[0] = p1;
+  fu.bytes[1] = p2;
+  fu.bytes[2] = p3;
+  fu.bytes[3] = p4;
+  return fu.val;
+}
+
+uint16_t getShort(uint8_t p1, uint8_t p2) {
+  su.bytes[0] = p1;
+  su.bytes[1] = p2;
+  return su.val;
+}
+
+// Enter receive buffer & process all active packets, one by one
+void readPackets() {
+  // If any new packets have been read, loop over them all
+  while (hasPacket) {
+    // Read header & nparams bytes, make parameter holding array
+    header = rxbuff[buffr];
+    advanceInBuffer();
+    nparams = rxbuff[buffr];
+    advanceInBuffer();
+
+    // Recover Function ID & Component ID from header
+    fid = header & functionId_mask;
+    fid = fid >> 2;
+    cid = componentId_mask & header;
+
+    // Read all payload bytes into params
+    for (int i = 0; i < nparams; i++) {
+      params[i] = rxbuff[buffr];
+      advanceInBuffer();
     }
+
+    parsePacket();
+
+    // Header can never be 0, so if next index is 0, there's no new packet.
+    // If not 0, continue reading packets.
+    if(rxbuff[buffr] == 0) hasPacket = false;
   }
+}
 
-  // Parse & call function
-  functionParser(comp, fid, params[0], params[1], params[2]);
+void advanceInBuffer() {
+  rxbuff[buffr] = 0; // Reset current buffer bin
+  buffr++; // Advance buffer reading index
+  if(buffr == 1000) buffr = 0; // Reset if at end of buffer
+}
 
-  // Set flag to false
-  serialAvailable = false;
+void printPacket() {
+  Serial.print("FID: ");
+  Serial.println(fid);
+  Serial.print("CID: ");
+  Serial.println(cid);
+  for (int i = 0; i < nparams; i++) {
+    Serial.print("Parameter ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.println(params[i]); 
+  }
+}
+
+// Reads current serial data into buffer
+void readIntoBuffer() {
+  while(MASTER_SERIAL.available()) {
+    rxbuff[buffw] = (uint8_t)MASTER_SERIAL.read();
+    buffw++;
+    if(buffw == 1000) buffw = 0;
+    hasPacket = true;
+
+    // This is necessary because of delay between SPI bytes being sent
+    // RPi throttles the SPI bus speed with a 220-300 us delay between bytes
+    // We use 300 us to be conservative
+    delayMicroseconds(300);
+  }
+}
+
+// For Testing
+void printBuffer(int numElems) {
+  for (int i = 0; i < numElems; i++) {
+    Serial.print("[");
+    Serial.print(rxbuff[i]);
+    Serial.print("], ");
+  }
+  Serial.println();
 }
 
 // ======================== PRIMARY LOOP  ======================== 
 
 Metro testTimer = Metro(2000);
 void loop() {
-  //readCurrents();
-  //readFaultStates();
-  //fixFaults();
-  //updateRPMs();
-  //checkCurrents();
-  //runPID();
-  //updateLED();
-  //if(serialAvailable) readPacket();
-  //updateBatteryVoltage();
-  if(testTimer.check() == 1) setMotorDirection(MOTOR2,!motor2_cw);
+  readCurrents();
+  readFaultStates();
+  fixFaults();
+  updateRPMs();
+  checkCurrents();
+  runPID();
+  updateLED();
+  readIntoBuffer();
+  readPackets();
+  updateBatteryVoltage();
 }
