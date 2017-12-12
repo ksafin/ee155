@@ -33,7 +33,7 @@ class SpiDev:
         self.spi_obj = spidev.SpiDev()
         self.spi_obj.open(bus, device)
         self.spi_obj.lsbfirst = False
-        self.spi_obj.max_speed_hz = 10**8
+        self.spi_obj.max_speed_hz = 10**7
         self.debug = False
         if self.debug:
             print "Initialized SPI Bus"
