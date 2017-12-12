@@ -25,7 +25,7 @@ GREEN_LED = 0x02
 BLUE_LED = 0x04
 LED_NONE = 0x00
 
-WAIT_TICKS = 10000
+WAIT_TICKS = 1000000000
 
 class SpiDev:
 
@@ -33,7 +33,7 @@ class SpiDev:
         self.spi_obj = spidev.SpiDev()
         self.spi_obj.open(bus, device)
         self.spi_obj.lsbfirst = False
-        self.spi_obj.max_speed_hz = 10**6
+        self.spi_obj.max_speed_hz = 10**7
         self.debug = False
         if self.debug:
             print "Initialized SPI Bus"
@@ -111,17 +111,16 @@ class SpiDev:
         self.writeRegister(REG_THR, byte)
 
     def readByte(self):
-        ticks = 0
-        while (ticks < WAIT_TICKS) and not self.hasData():
-            ticks = ticks + 1
+        while not self.hasData():
+           pass
         if self.hasData():
-            return readRegister(REG_RHR)
+            return self.readRegister(REG_RHR)
         return None
 
     def writeBytes(self, bytes):
         self.enableLED(RED_LED)
         for byte in bytes:
-            writeByte(byte)
+            self.writeByte(byte)
         self.enableLED(LED_NONE)
         time.sleep(0.001)
 
@@ -129,7 +128,7 @@ class SpiDev:
         self.enableLED(BLUE_LED)
         bytes = list()
         for i in range(0,numbytes):
-            bytes.append(readByte())
+            bytes.append(self.readByte())
         self.enableLED(LED_NONE)
         time.sleep(0.001)
         return bytes
@@ -140,10 +139,13 @@ class SpiDev:
     def enableDebug(self):
         self.debug = True
 
-    def enableInterrupt(self):
-        reg_val = self.readRegister(REG_IER)
-        reg_val = reg_val | 0x40
-        self.writeRegister(REG_IER, reg_val)
+    def enableCTS(self):
+        lcr = self.readRegister(REG_LCR)
+        self.writeRegister(REG_LCR, 0xBF)
+        reg_val = self.readRegister(REG_EFR)
+        reg_val = (reg_val | 0x80)
+        self.writeRegister(REG_EFR, reg_val)
+        self.writeRegister(REG_LCR, lcr)
 
     def ping(self):
         self.writeRegister(REG_SPR, 0x55)
@@ -153,6 +155,3 @@ class SpiDev:
         if self.readRegister(REG_SPR) != 0xAA:
             return False
         return True
-
-    def readByte(self):
-        self.readRegister(REG_RHR)

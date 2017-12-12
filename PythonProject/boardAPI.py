@@ -22,11 +22,12 @@ class MotorHat:
         self.servo4 = servoAPI.Servo(self.spi, 4)
 
     def begin(self):
-        if self.spi.ping()
+        if self.spi.ping():
             self.spi.initializeRegisters()
             self.enabled = True
-        else
-            return false
+            return True
+        else:
+            return False
 
     def getmotor(self, motornum):
         if not self.enabled:
