@@ -219,11 +219,10 @@ uint16_t motor4_coastSpd = 500;
 // Number of encoder pulses per revolution of the motor shaft.
 // This is used to determine RPM, and is specific for every motor.
 // Default is 134.4, which is the ppr for an Andymark Neverest 19.2:1
-float m1_ppr = 420.0;
-
-float m2_ppr = 134.4;
-float m3_ppr = 134.4;
-float m4_ppr = 420.0;//134.4;
+float m1_ppr = 7;
+float m2_ppr = 7;
+float m3_ppr = 7;
+float m4_ppr = 7;
 
 // FAULT STATES
 // Fault state for each motor, as determined by the bridge chip.
@@ -252,13 +251,13 @@ uint16_t timeStep = 20;
 // PID VARIABLES FOR EACH MOTOR
 // Whether to use PID. If true, enables setting RPM via PID.
 // If false, motors are driven just by PWM. 
-boolean m1_usePID = false;
+boolean m1_usePID = true;
 boolean m2_usePID = false;
 boolean m3_usePID = false;
 boolean m4_usePID = false;
 
 // Desired RPM to reach, under PID conditions.
-double m1_targetRPM = 80.0;
+double m1_targetRPM = 0.0;
 double m2_targetRPM = 0.0;
 double m3_targetRPM = 0.0;
 double m4_targetRPM = 0.0;
@@ -270,19 +269,19 @@ double m3_err = 0.0;
 double m4_err = 0.0;
 
 // Proportionality constants for each motors PID
-double m1_Kp = 0.8;
+double m1_Kp = 0.0;
 double m2_Kp = 0.0;
 double m3_Kp = 0.0;
 double m4_Kp = 0.0;
 
 // Derivative constants for each motors PID
-double m1_Kd = 0.2;
+double m1_Kd = 0.0;
 double m2_Kd = 0.0;
 double m3_Kd = 0.0;
 double m4_Kd = 0.0;
 
 // Integral constants for each motors PID
-double m1_Ki = 0.05;
+double m1_Ki = 0.0;
 double m2_Ki = 0.0;
 double m3_Ki = 0.0;
 double m4_Ki = 0.0;
@@ -368,6 +367,9 @@ IntervalTimer m1_timer;
 IntervalTimer m2_timer;
 IntervalTimer m3_timer;
 IntervalTimer m4_timer;
+
+// Timer for rotating for a fixed number of rotations
+IntervalTimer rotTimer;
 
 // Timer for rpm measurements
 Metro encTimer = Metro(rpmTimeStep);
@@ -462,9 +464,6 @@ void setup() {
   m3_past_ticks = enc3.read();
   m4_past_ticks = enc4.read();
 
-  setMotorDirection(MOTOR1, true);
-  rotateMotorForRotations(MOTOR1, 10, 200, false);
-
   Serial.begin(115200);
 }
 
@@ -508,10 +507,10 @@ uint8_t getMotorFault(uint8_t motor) {
 // pwm -- an int, 0 - 2^PWM_RES, designating duty cycle
 void setMotorPWM(uint8_t motor, uint16_t pwm) {
   switch(motor) {
-    case 1: motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
-    case 2: motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
-    case 3: motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
-    case 4: motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
+    case 1: setMotorDirection(MOTOR1, motor1_cw); motor1_pwm = pwm; analogWrite(MOTOR1_PWM, pwm); break;
+    case 2: setMotorDirection(MOTOR2, motor2_cw); motor2_pwm = pwm; analogWrite(MOTOR2_PWM, pwm); break;
+    case 3: setMotorDirection(MOTOR3, motor3_cw); motor3_pwm = pwm; analogWrite(MOTOR3_PWM, pwm); break;
+    case 4: setMotorDirection(MOTOR4, motor4_cw); motor4_pwm = pwm; analogWrite(MOTOR4_PWM, pwm); break;
   }
 }
 
@@ -683,18 +682,22 @@ void brakeMotor(uint8_t motor) {
     case 1: mcp.digitalWrite(IN1_A, HIGH);
             mcp.digitalWrite(IN1_B, HIGH);
             setMotorPWM(MOTOR1, 0);
+            m1_targetRPM = 0;
             break;
     case 2: mcp.digitalWrite(IN2_A, HIGH);
             mcp.digitalWrite(IN2_B, HIGH);
             setMotorPWM(MOTOR2, 0);
+            m2_targetRPM = 0;
             break;
     case 3: mcp.digitalWrite(IN3_A, HIGH);
             mcp.digitalWrite(IN3_B, HIGH);
             setMotorPWM(MOTOR3, 0);
+            m3_targetRPM = 0;
             break;
     case 4: mcp.digitalWrite(IN4_A, HIGH);
             mcp.digitalWrite(IN4_B, HIGH);
             setMotorPWM(MOTOR4, 0);
+            m4_targetRPM = 0;
             break;
   }
 }
@@ -977,62 +980,53 @@ void rotateMotorForRotations(uint8_t motor, double rots, uint16_t rpmOrPwm, bool
 void runMotor1ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m1_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR1);
-  Serial.println(curTicks);
   long targetTicks = (long)(curTicks + (rots * m1_ppr * 4));
-  Serial.println(targetTicks);
   if(isRPM) m1_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR1, rpmOrPwm);
   while(curTicks < targetTicks) {
     if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR1);
   }
-  if(isRPM) { brakeMotor(MOTOR1); m1_targetRPM = 0; }
-  if(!isRPM) { brakeMotor(MOTOR1); setMotorPWM(MOTOR1, 0); }
+  brakeMotor(MOTOR1);
 }
 
 void runMotor2ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m2_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR2);
-  long targetTicks = (long)(curTicks + (rots * m2_ppr));
+  long targetTicks = (long)(curTicks + (rots * m2_ppr * 4));
   if(isRPM) m2_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR2, rpmOrPwm);
   while(curTicks < targetTicks) {
     if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR2);
   }
-  if(isRPM) m2_targetRPM = 0;
-  releaseMotor(MOTOR2);
-  if(!isRPM) setMotorPWM(MOTOR2, 0);
+  brakeMotor(MOTOR2);
 }
 
 void runMotor3ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m3_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR3);
-  long targetTicks = (long)(curTicks + (rots * m3_ppr));
+  long targetTicks = (long)(curTicks + (rots * m3_ppr * 4));
   if(isRPM) m3_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR3, rpmOrPwm);
   while(curTicks < targetTicks) {
     if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR3);
   }
-  if(isRPM) m3_targetRPM = 0;
-  releaseMotor(MOTOR3);
-  if(!isRPM) setMotorPWM(MOTOR3, 0);
+  brakeMotor(MOTOR3);
 }
 
 void runMotor4ForRotations(double rots, uint16_t rpmOrPwm, boolean isRPM) {
   if((isRPM) && (!m4_usePID)) return;
   long curTicks = getEncoderTicks(MOTOR4);
-  long targetTicks = (long)(curTicks + (rots * m4_ppr));
+  long targetTicks = (long)(curTicks + (rots * m4_ppr * 4));
   if(isRPM) m4_targetRPM = rpmOrPwm;
   if(!isRPM) setMotorPWM(MOTOR4, rpmOrPwm);
   while(curTicks < targetTicks) {
     if(isRPM) runPID();
     curTicks = getEncoderTicks(MOTOR4);
   }
-  if(isRPM) m4_targetRPM = 0;
-  releaseMotor(MOTOR4);
-  if(!isRPM) setMotorPWM(MOTOR4, 0);
+  brakeMotor(MOTOR4);
 }
 
 
@@ -1189,6 +1183,7 @@ void parsePacket() {
           Serial.println("Setting PID constants");
           break; }
       case FID_SETSPD: {
+          setMotorDirection(cid, (boolean)params[2]);
           setMotorSpeed(cid, getShort(params[0], params[1]));
           Serial.print("Setting motor speed to ");
           Serial.println(m1_targetRPM);
