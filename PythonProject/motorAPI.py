@@ -68,13 +68,13 @@ class Motor:
             return False
 
         if neverest == Motor.NEVEREST3P9:
-            self.setPPR(self, Motor.NEVEREST_3P9_PPR)
+            self.setPPR(Motor.NEVEREST_3P9_PPR)
         if neverest == Motor.NEVEREST20:
-            self.setPPR(self, Motor.NEVEREST_20_PPR)
+            self.setPPR(Motor.NEVEREST_20_PPR)
         if neverest == Motor.NEVEREST40:
-            self.setPPR(self, Motor.NEVEREST_40_PPR)
+            self.setPPR(Motor.NEVEREST_40_PPR)
         if neverest == Motor.NEVEREST60:
-            self.setPPR(self, Motor.NEVEREST_60_PPR)
+            self.setPPR(Motor.NEVEREST_60_PPR)
 
         return True
 
@@ -167,7 +167,7 @@ class Motor:
         if neverest == Motor.NEVEREST40:
             # Set PID constants
         if neverest == Motor.NEVEREST60:
-            self.setPID(self, 0.8, 0.2, 0.05)
+            self.setPID(0.8, 0.2, 0.05)
 
         return True
 

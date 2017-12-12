@@ -12,6 +12,7 @@ REG_MCR = 0x04
 REG_LCR = 0x03
 REG_DLL = 0x00
 REG_DLH = 0x01
+REG_IER = 0x01
 REG_LSR = 0x05
 REG_IODIR = 0x0A
 REG_SPR = 0x07
@@ -138,7 +139,12 @@ class SpiDev:
 
     def enableDebug(self):
         self.debug = True
-    
+
+    def enableInterrupt(self):
+        reg_val = self.readRegister(REG_IER)
+        reg_val = reg_val | 0x40
+        self.writeRegister(REG_IER, reg_val)
+
     def ping(self):
         self.writeRegister(REG_SPR, 0x55)
         if self.readRegister(REG_SPR) != 0x55:
