@@ -1,13 +1,6 @@
 import spidev
-import math
 import struct
 import array
-
-def ReverseBits(byte):
-    byte = ((byte & 0xF0) >> 4) | ((byte & 0x0F) << 4)
-    byte = ((byte & 0xCC) >> 2) | ((byte & 0x33) << 2)
-    byte = ((byte & 0xAA) >> 1) | ((byte & 0x55) << 1)
-    return byte
 
 # Pass in list of 4 bytes, returns float
 def BytesToFloat(bytes)
@@ -34,7 +27,7 @@ def IntToBytes(int):
     return vartobytes(int, 'I', 4)
 
 # Packs a variable, given a data type and number of bytes
-# Returns list of bytes, MSB first
+# Returns list of bytes, LSB first (little endian)
 def vartobytes(data, type, numbytes)
     s = struct.Struct(type)
     packed = s.pack(data)
