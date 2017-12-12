@@ -161,11 +161,11 @@ class Motor:
             return False
 
         if neverest == Motor.NEVEREST3P9:
-            # Set PID constants
+            self.setPID(0.8, 0.2, 0.05)
         if neverest == Motor.NEVEREST20:
-            # Set PID constants
+            self.setPID(0.8, 0.2, 0.05)
         if neverest == Motor.NEVEREST40:
-            # Set PID constants
+            self.setPID(0.8, 0.2, 0.05)
         if neverest == Motor.NEVEREST60:
             self.setPID(0.8, 0.2, 0.05)
 
@@ -258,10 +258,10 @@ class Motor:
             return False
 
         # Update internal memory of direction
-         if pwm < 0:
-             self.cw = False
-         elif pwm > 0:
-             self.cw = True
+        if pwm < 0:
+            self.cw = False
+        elif pwm > 0:
+            self.cw = True
 
         pwm = abs(pwm)
 

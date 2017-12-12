@@ -91,6 +91,8 @@ class SpiDev:
         self.enableLED(GREEN_LED)
         if self.debug:
             print "Enabled Green LED"
+            
+        self.writeByte(0xAA)
     
     def writeRegister(self, addr, value):
         self.spi_obj.xfer2([addr<<3,value])
