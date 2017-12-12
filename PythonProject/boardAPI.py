@@ -25,8 +25,9 @@ class MotorHat:
         if self.spi.ping():
             self.spi.initializeRegisters()
             self.enabled = True
+            return True
         else:
-            return false
+            return False
 
     def getmotor(self, motornum):
         if not self.enabled:

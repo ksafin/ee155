@@ -2,20 +2,6 @@ import spi_util as su
 import packet_util as pu
 
 class Motor:
-    NEVEREST_3P9_PPR = 25.9
-    NEVEREST_20_PPR = 134.4
-    NEVEREST_40_PPR = 280
-    NEVEREST_60_PPR = 420
-
-    NEVEREST3P9 = 0
-    NEVEREST20 = 1
-    NEVEREST40 = 2
-    NEVEREST60 = 3
-
-    NO_FAULT = 0
-    CURRENT_FAULT = 1
-    TEMP_FAULT = 2
-    DOUBLE_FAULT = 3
 
     def __init__(self,spi_obj,motor_id):
         self.spi = spi_obj
@@ -24,6 +10,21 @@ class Motor:
         self.PIDSet = False
         self.isPID = False
         self.ppr = 0
+        
+        self.NEVEREST_3P9_PPR = 25.9
+        self.NEVEREST_20_PPR = 134.4
+        self.NEVEREST_40_PPR = 280
+        self.NEVEREST_60_PPR = 420
+
+        self.NEVEREST3P9 = 0
+        self.NEVEREST20 = 1
+        self.NEVEREST40 = 2
+        self.NEVEREST60 = 3
+
+        self.NO_FAULT = 0
+        self.CURRENT_FAULT = 1
+        self.TEMP_FAULT = 2
+        self.DOUBLE_FAULT = 3
 
     # Set motor to a PWM and a given direction
     # pwm -- value from -255 to 255
@@ -67,14 +68,14 @@ class Motor:
         if (neverest < 0) or (neverest > 3):
             return False
 
-        if neverest == Motor.NEVEREST3P9:
-            self.setPPR(Motor.NEVEREST_3P9_PPR)
-        if neverest == Motor.NEVEREST20:
-            self.setPPR(Motor.NEVEREST_20_PPR)
-        if neverest == Motor.NEVEREST40:
-            self.setPPR(Motor.NEVEREST_40_PPR)
-        if neverest == Motor.NEVEREST60:
-            self.setPPR(Motor.NEVEREST_60_PPR)
+        if neverest == self.NEVEREST3P9:
+            self.setPPR(self.NEVEREST_3P9_PPR)
+        if neverest == self.NEVEREST20:
+            self.setPPR(self.NEVEREST_20_PPR)
+        if neverest == self.NEVEREST40:
+            self.setPPR(self.NEVEREST_40_PPR)
+        if neverest == self.NEVEREST60:
+            self.setPPR(self.NEVEREST_60_PPR)
 
         return True
 
@@ -87,16 +88,16 @@ class Motor:
             return False
 
         # Assemble packet and write to SPI, return true for success
-        packet = pu.getPacket(0x01, self.id, list([su.ShortToBytes(ilim)]))
+        packet = pu.getPacket(0x01, self.id, su.ShortToBytes(ilim))
         self.spi.writeBytes(packet)
         return True
 
 
     # Read current motor speed in RPM
-    # Function ID -- 0x06
+    # Function ID -- 0x02
     def getSpeed(self):
         # Assemble packet and write to SPI
-        packet = pu.getPacket(0x06, self.id, list())
+        packet = pu.getPacket(0x02, self.id, list())
         self.spi.writeBytes(packet)
 
         # Read two bytes
@@ -160,13 +161,13 @@ class Motor:
         if (neverest < 0) or (neverest > 3):
             return False
 
-        if neverest == Motor.NEVEREST3P9:
+        if neverest == self.NEVEREST3P9:
             self.setPID(0.8, 0.2, 0.05)
-        if neverest == Motor.NEVEREST20:
+        if neverest == self.NEVEREST20:
             self.setPID(0.8, 0.2, 0.05)
-        if neverest == Motor.NEVEREST40:
+        if neverest == self.NEVEREST40:
             self.setPID(0.8, 0.2, 0.05)
-        if neverest == Motor.NEVEREST60:
+        if neverest == self.NEVEREST60:
             self.setPID(0.8, 0.2, 0.05)
 
         return True
@@ -238,14 +239,20 @@ class Motor:
         self.spi.writeBytes(packet)
 
         # Read four bytes
-        resp = self.spi.readBytes(4)
+        resp = self.spi.readBytes(5)
 
         # Check if the read failed, if yes, return -1
         if pu.isEmpty(resp):
             return -1
 
-        # If read succeeded, return rpm as int
-        return su.BytesToInt(resp)
+        # Get Integer
+        num = su.BytesToInt(resp[0:4])
+        
+        # Determine if negative
+        if resp[4] == 1:
+            return (num * -1)
+        else:
+            return num
 
 
     # Rotate Motor for a fixed number of rotations at a given PWM

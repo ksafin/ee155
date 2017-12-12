@@ -20,7 +20,7 @@ def ShortToBytes(short):
 
 # Pass in list of 4 bytes, returns int
 def BytesToInt(bytes):
-    return vartobytes(bytes, 'I')
+    return bytestovar(bytes, 'I')
 
 # Pass in int, returns list of 4 bytes
 def IntToBytes(int):

@@ -1,5 +1,5 @@
 def getHeader(functionid, componentid):
-    return (componentid<<2) + componentid
+    return (functionid<<2) + componentid
 
 def getPacket(fid, cid, data):
     packet = list()
